@@ -1,0 +1,20 @@
+# Normalise line endings so contributors on Windows, macOS and Linux do not
+# produce diffs that consist entirely of invisible characters.
+* text=auto eol=lf
+
+# Windows-only tooling that must keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets: never touch these.
+*.png binary
+*.ico binary
+*.icns binary
+*.svg text
+*.onnx binary
+
+# Generated lockfiles: keep them in the repository but hide them from diffs,
+# since reviewing thousands of resolver lines helps nobody.
+package-lock.json linguist-generated=true -diff
+src-tauri/Cargo.lock linguist-generated=true -diff
