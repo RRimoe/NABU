@@ -9,6 +9,7 @@ import {
 import { RenderEngine, RENDER_THEMES, loadImage } from '../engine/RenderEngine';
 import type { Point2D } from '../types/document';
 import { SelectionActions } from './SelectionActions';
+import { WelcomeBubble } from './WelcomeBubble';
 
 /** Minimum distance between two lasso points, in document pixels. */
 const LASSO_STEP = 3;
@@ -38,6 +39,7 @@ export const CanvasViewport: React.FC = () => {
     updateLayer,
     fitRequestId,
     activeId,
+    selectionBrush,
   } = useDocumentStore();
 
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
@@ -83,12 +85,24 @@ export const CanvasViewport: React.FC = () => {
     requestFrame();
   }, [theme, requestFrame]);
 
+  useEffect(() => {
+    engineRef.current?.setBrushWidth(selectionBrush);
+    requestFrame();
+  }, [selectionBrush, requestFrame]);
+
   // Frame drawing: synchronous, so two frames can never overlap.
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || containerSize.width === 0 || containerSize.height === 0) return;
     const shown = draftLasso ? { path: draftLasso } : selection;
-    engine.render(doc, viewport, containerSize.width, containerSize.height, shown);
+    engine.render(
+      doc,
+      viewport,
+      containerSize.width,
+      containerSize.height,
+      shown,
+      Boolean(draftLasso)
+    );
   }, [doc, viewport, containerSize, frameTick, selection, draftLasso]);
 
   // "Fit to screen" requested by the store
@@ -343,7 +357,8 @@ export const CanvasViewport: React.FC = () => {
       })()
     : null;
 
-  const cursor = isPanning || isSpaceDown || activeTool === 'pan' ? 'grab' : 'crosshair';
+  const panMode = isSpaceDown || activeTool === 'pan';
+  const cursor = isPanning ? 'grabbing' : panMode ? 'grab' : 'crosshair';
 
   return (
     <div
@@ -357,8 +372,13 @@ export const CanvasViewport: React.FC = () => {
     >
       <canvas ref={canvasRef} className="main-render-canvas" />
 
-      {anchor && !refineMode && (
-        <SelectionActions x={anchor.x} y={anchor.y} />
+      {anchor && !refineMode && <SelectionActions x={anchor.x} y={anchor.y} />}
+
+      {!selection && !draftLasso && !refineMode && (
+        <WelcomeBubble
+          x={docLeft + (viewport.zoom * doc.width) / 2}
+          y={docTop + (viewport.zoom * doc.height) / 2}
+        />
       )}
     </div>
   );

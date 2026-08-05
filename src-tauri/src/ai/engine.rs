@@ -119,6 +119,16 @@ pub fn load_for(
     cache.get_or_load(app, model_id, file.file_name)
 }
 
+/// Loads one specific file of a model, for models split into several stages.
+pub fn load_file(
+    app: &AppHandle,
+    cache: &SessionCache,
+    model_id: &str,
+    file_name: &str,
+) -> NabuResult<Arc<Mutex<Session>>> {
+    cache.get_or_load(app, model_id, file_name)
+}
+
 /// Checks that the model is installed and returns the path of one of its files.
 pub fn resolve_model_file(
     app: &AppHandle,

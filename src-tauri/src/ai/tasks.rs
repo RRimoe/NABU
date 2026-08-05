@@ -239,3 +239,206 @@ fn upscale_tile(session: &mut Session, tile: &RgbaImage, scale: u32) -> NabuResu
 
     Ok(result)
 }
+
+// ---------------------------------------------------------------------------
+// Object segmentation (SlimSAM)
+// ---------------------------------------------------------------------------
+
+/// Side of the square input the vision encoder expects.
+const SAM_SIZE: u32 = 1024;
+/// Side of the low-resolution mask the decoder returns.
+const SAM_MASK_SIZE: usize = 256;
+
+/// Per-channel normalisation used when SAM was trained (values on a 0..255 scale).
+const SAM_MEAN: [f32; 3] = [123.675, 116.28, 103.53];
+const SAM_STD: [f32; 3] = [58.395, 57.12, 57.375];
+
+/// A rectangle in source-image pixels, used to tell SAM which object is meant.
+#[derive(Debug, Clone, Copy)]
+pub struct BoxPrompt {
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+}
+
+/// Runs the two SlimSAM stages and returns the source image with its alpha
+/// channel replaced by the mask of the object inside `prompt`.
+///
+/// Unlike background removal, this does not ask "what is the subject of this
+/// picture" — it asks "what is the object here", which is the difference
+/// between cutting out a car and cutting out the shape someone drew.
+pub fn segment_object(
+    encoder: &mut Session,
+    decoder: &mut Session,
+    source: &RgbaImage,
+    prompt: BoxPrompt,
+    progress: ProgressFn<'_>,
+) -> NabuResult<RgbaImage> {
+    let (width, height) = source.dimensions();
+
+    progress(15, "prepare");
+
+    // SAM keeps the aspect ratio: the longest side becomes 1024 and the rest
+    // of the square is padded, so the prompt must be scaled the same way.
+    let scale = SAM_SIZE as f32 / width.max(height) as f32;
+    let resized_w = ((width as f32 * scale).round() as u32).clamp(1, SAM_SIZE);
+    let resized_h = ((height as f32 * scale).round() as u32).clamp(1, SAM_SIZE);
+
+    let resized = image::imageops::resize(source, resized_w, resized_h, FilterType::Triangle);
+
+    let plane = (SAM_SIZE * SAM_SIZE) as usize;
+    let mut pixels = vec![0f32; 3 * plane];
+    for y in 0..resized_h {
+        for x in 0..resized_w {
+            let px = resized.get_pixel(x, y);
+            let i = (y * SAM_SIZE + x) as usize;
+            for c in 0..3 {
+                pixels[c * plane + i] = (px[c] as f32 - SAM_MEAN[c]) / SAM_STD[c];
+            }
+        }
+    }
+
+    let pixel_values = Tensor::from_array((
+        vec![1usize, 3, SAM_SIZE as usize, SAM_SIZE as usize],
+        pixels,
+    ))
+    .map_err(error::inference_failed)?;
+
+    progress(40, "segment");
+
+    // --- Stage 1: encode the image ----------------------------------------
+    let embeddings = {
+        let outputs = encoder
+            .run(ort::inputs![pixel_values])
+            .map_err(error::inference_failed)?;
+
+        let mut image_embeddings: Option<Vec<f32>> = None;
+        let mut positional: Option<Vec<f32>> = None;
+
+        for (name, value) in outputs.iter() {
+            let (_, data) = value
+                .try_extract_tensor::<f32>()
+                .map_err(error::inference_failed)?;
+            match name {
+                "image_embeddings" => image_embeddings = Some(data.to_vec()),
+                "image_positional_embeddings" => positional = Some(data.to_vec()),
+                _ => {}
+            }
+        }
+
+        let image_embeddings = image_embeddings
+            .ok_or_else(|| error::inference_failed("encoder produced no image embeddings"))?;
+        let positional = positional
+            .ok_or_else(|| error::inference_failed("encoder produced no positional embeddings"))?;
+        (image_embeddings, positional)
+    };
+
+    let embed_shape = vec![1usize, 256, 64, 64];
+    let image_embeddings = Tensor::from_array((embed_shape.clone(), embeddings.0))
+        .map_err(error::inference_failed)?;
+    let positional_embeddings =
+        Tensor::from_array((embed_shape, embeddings.1)).map_err(error::inference_failed)?;
+
+    // --- Stage 2: decode a mask from positive points -----------------------
+    //
+    // Corner labels 2/3 (the "box" prompt) are not honoured by this export: it
+    // answers with the inverse mask. Positive points, label 1, are the prompt
+    // every SAM build understands, so the selection is expressed as a handful
+    // of points inside it rather than as a rectangle.
+    let cx = (prompt.x0 + prompt.x1) / 2.0;
+    let cy = (prompt.y0 + prompt.y1) / 2.0;
+    let qx = (prompt.x1 - prompt.x0) / 4.0;
+    let qy = (prompt.y1 - prompt.y0) / 4.0;
+
+    // Centre plus four points half-way to the edges: one click can land on a
+    // window or a wheel and describe only that part, while several spread over
+    // the region push SAM towards the whole object.
+    let samples: [(f32, f32); 5] = [
+        (cx, cy),
+        (cx - qx, cy),
+        (cx + qx, cy),
+        (cx, cy - qy),
+        (cx, cy + qy),
+    ];
+
+    let mut points = Vec::with_capacity(samples.len() * 2);
+    for (x, y) in samples {
+        points.push(x * scale);
+        points.push(y * scale);
+    }
+    let labels = vec![1i64; samples.len()];
+
+    let input_points = Tensor::from_array((vec![1usize, 1, samples.len(), 2], points))
+        .map_err(error::inference_failed)?;
+    let input_labels = Tensor::from_array((vec![1usize, 1, samples.len()], labels))
+        .map_err(error::inference_failed)?;
+
+    progress(70, "compose");
+
+    let outputs = decoder
+        .run(ort::inputs![
+            "input_points" => input_points,
+            "input_labels" => input_labels,
+            "image_embeddings" => image_embeddings,
+            "image_positional_embeddings" => positional_embeddings,
+        ])
+        .map_err(error::inference_failed)?;
+
+    let mut scores: Vec<f32> = Vec::new();
+    let mut masks: Vec<f32> = Vec::new();
+    for (name, value) in outputs.iter() {
+        let (_, data) = value
+            .try_extract_tensor::<f32>()
+            .map_err(error::inference_failed)?;
+        match name {
+            "iou_scores" => scores = data.to_vec(),
+            "pred_masks" => masks = data.to_vec(),
+            _ => {}
+        }
+    }
+
+    let mask_plane = SAM_MASK_SIZE * SAM_MASK_SIZE;
+    if masks.len() < mask_plane {
+        return Err(error::inference_failed("decoder produced no usable mask"));
+    }
+
+    // The decoder proposes three masks at different scopes (part, sub-object,
+    // whole object): take the one it rates highest rather than always the first.
+    let candidates = (masks.len() / mask_plane).min(scores.len().max(1));
+    let best = (0..candidates)
+        .max_by(|a, b| {
+            let sa = scores.get(*a).copied().unwrap_or(0.0);
+            let sb = scores.get(*b).copied().unwrap_or(0.0);
+            sa.total_cmp(&sb)
+        })
+        .unwrap_or(0);
+
+    let logits = &masks[best * mask_plane..(best + 1) * mask_plane];
+
+    // The low-resolution mask covers the padded square, so only the part that
+    // held the image is meaningful.
+    let valid_w = ((resized_w as f32 / SAM_SIZE as f32) * SAM_MASK_SIZE as f32).round() as u32;
+    let valid_h = ((resized_h as f32 / SAM_SIZE as f32) * SAM_MASK_SIZE as f32).round() as u32;
+
+    let mut small = image::GrayImage::new(SAM_MASK_SIZE as u32, SAM_MASK_SIZE as u32);
+    for (i, pixel) in small.pixels_mut().enumerate() {
+        // A logit above zero means "inside the object"; a soft ramp around it
+        // keeps the edge from looking cut with scissors.
+        let v = logits[i];
+        pixel[0] = ((v / 4.0 + 0.5).clamp(0.0, 1.0) * 255.0) as u8;
+    }
+
+    let cropped =
+        image::imageops::crop_imm(&small, 0, 0, valid_w.max(1), valid_h.max(1)).to_image();
+    let mask = image::imageops::resize(&cropped, width, height, FilterType::Triangle);
+
+    let mut output = source.clone();
+    for (x, y, pixel) in output.enumerate_pixels_mut() {
+        let alpha = mask.get_pixel(x, y)[0];
+        pixel[3] = ((pixel[3] as u16 * alpha as u16) / 255) as u8;
+    }
+
+    progress(100, "done");
+    Ok(output)
+}

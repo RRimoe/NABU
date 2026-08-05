@@ -69,6 +69,8 @@ export interface LayerNode {
    * without the original one could only erase, never bring anything back.
    */
   sourceLayerId?: string;
+  /** Non-destructive adjustments; absent means none have been applied. */
+  adjustments?: Adjustments;
 }
 
 export interface NabuDocument {
@@ -90,6 +92,72 @@ export interface NabuDocument {
   selectedLayerIds: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Non-destructive adjustments applied to a layer.
+ *
+ * Every value is a deviation from neutral, so an all-zero record means "leave
+ * the pixels alone" and resetting a control is simply writing 0. They are held
+ * on the layer rather than baked into its pixels: the original data is never
+ * touched, and any slider can be moved again at any time.
+ *
+ * Ranges are -100..100 unless noted, chosen so the numbers read the same way a
+ * photographer expects rather than exposing raw multipliers.
+ */
+export interface Adjustments {
+  // Tone
+  exposure: number;
+  contrast: number;
+  highlights: number;
+  shadows: number;
+  whites: number;
+  blacks: number;
+
+  // Colour
+  temperature: number;
+  tint: number;
+  vibrance: number;
+  saturation: number;
+  /** Hue rotation in degrees, -180..180. */
+  hue: number;
+
+  // Presence
+  clarity: number;
+  sharpness: number;
+  /** Blur radius in pixels, 0..20. */
+  blur: number;
+
+  // Effects
+  vignette: number;
+  grain: number;
+}
+
+export const NEUTRAL_ADJUSTMENTS: Adjustments = {
+  exposure: 0,
+  contrast: 0,
+  highlights: 0,
+  shadows: 0,
+  whites: 0,
+  blacks: 0,
+  temperature: 0,
+  tint: 0,
+  vibrance: 0,
+  saturation: 0,
+  hue: 0,
+  clarity: 0,
+  sharpness: 0,
+  blur: 0,
+  vignette: 0,
+  grain: 0,
+};
+
+/** True when nothing would change, so the processing pass can be skipped. */
+export function isNeutral(adjustments?: Adjustments): boolean {
+  if (!adjustments) return true;
+  return (Object.keys(NEUTRAL_ADJUSTMENTS) as Array<keyof Adjustments>).every(
+    (key) => adjustments[key] === 0
+  );
 }
 
 export interface Point2D {

@@ -100,6 +100,64 @@ fn list_languages(app: AppHandle) -> Vec<LanguageFile> {
         .collect()
 }
 
+/// Cuts out the object inside a rectangle, using the two SlimSAM stages.
+///
+/// This answers a different question from background removal: not "what is the
+/// subject of this photo" but "what is the object here", which is what a rough
+/// selection around a car is actually asking.
+#[tauri::command]
+async fn segment_object(
+    app: AppHandle,
+    cache: State<'_, Arc<SessionCache>>,
+    model_id: String,
+    image_data_url: String,
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
+) -> Result<String, NabuError> {
+    let spec = registry::find(&model_id).ok_or_else(|| error::unknown_model(&model_id))?;
+    if spec.files.len() < 2 {
+        return Err(error::missing_file("prompt_encoder_mask_decoder.onnx", spec.name));
+    }
+
+    let encoder_file = spec.files[0].file_name;
+    let decoder_file = spec.files[1].file_name;
+
+    let cache = cache.inner().clone();
+    let handle = app.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let source = imaging::decode_data_url(&image_data_url)?;
+
+        let emit = |percent: u32, stage: &str| {
+            let _ = handle.emit(
+                "ai-task-progress",
+                AiProgress { percent, stage: stage.to_string() },
+            );
+        };
+        emit(5, "load");
+
+        let encoder = engine::load_file(&handle, &cache, &model_id, encoder_file)?;
+        let decoder = engine::load_file(&handle, &cache, &model_id, decoder_file)?;
+
+        let mut encoder = encoder.lock().map_err(|_| error::session_unavailable())?;
+        let mut decoder = decoder.lock().map_err(|_| error::session_unavailable())?;
+
+        let result = tasks::segment_object(
+            &mut encoder,
+            &mut decoder,
+            &source,
+            tasks::BoxPrompt { x0, y0, x1, y1 },
+            &emit,
+        )?;
+
+        imaging::encode_png_data_url(&result)
+    })
+    .await
+    .map_err(error::unknown)?
+}
+
 /// Accelerator detected on this machine, shown in the status bar.
 #[tauri::command]
 fn accelerator_label() -> String {
@@ -184,6 +242,7 @@ pub fn run() {
             reveal_models_directory,
             list_languages,
             accelerator_label,
+            segment_object,
             process_ai_task
         ])
         .run(tauri::generate_context!())

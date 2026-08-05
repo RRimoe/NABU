@@ -1,4 +1,5 @@
 // src/engine/RenderEngine.ts
+import { AdjustmentProcessor, adjustmentKey } from './adjustments';
 import {
   NabuDocument,
   ViewportTransform,
@@ -42,7 +43,7 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('Immagine non caricabile'));
+    img.onerror = () => reject(new Error('Image could not be loaded'));
     img.src = src;
   });
 }
@@ -79,7 +80,14 @@ export function paintLayers(
   ctx: CanvasRenderingContext2D,
   doc: NabuDocument,
   theme: RenderTheme,
-  resolveImage: (src: string) => HTMLImageElement | null
+  resolveImage: (src: string) => HTMLImageElement | null,
+  /** Applies the layer's adjustments; returns null to draw the raw image. */
+  resolveAdjusted?: (
+    layerId: string,
+    image: HTMLImageElement,
+    width: number,
+    height: number
+  ) => CanvasImageSource | null
 ): void {
   // rootLayerIds runs top to bottom, so it is painted in reverse.
   const bottomToTop = [...doc.rootLayerIds].reverse();
@@ -99,13 +107,10 @@ export function paintLayers(
     if (layer.imageDataUrl) {
       const img = resolveImage(layer.imageDataUrl);
       if (img) {
-        ctx.drawImage(
-          img,
-          0,
-          0,
-          layer.width ?? img.naturalWidth,
-          layer.height ?? img.naturalHeight
-        );
+        const width = layer.width ?? img.naturalWidth;
+        const height = layer.height ?? img.naturalHeight;
+        const adjusted = resolveAdjusted?.(layer.id, img, width, height);
+        ctx.drawImage(adjusted ?? img, 0, 0, width, height);
       }
     } else if (layer.id === BACKGROUND_LAYER_ID && doc.background === 'white') {
       // The white sheet only exists in documents that ask for it: on a
@@ -139,14 +144,30 @@ export class RenderEngine {
   private checkerPattern: CanvasPattern | null = null;
   private checkerKey = '';
 
+  /** Half-width of the selection brush, in screen pixels. */
+  private brushWidth = 26;
+
+  private adjuster = new AdjustmentProcessor();
+  /**
+   * Processed layers, keyed by layer id. The signature guards against stale
+   * results: re-running the shader on every frame would drop the frame rate
+   * while panning, and reusing a stale one would ignore a moved slider.
+   */
+  private adjusted = new Map<string, { signature: string; canvas: HTMLCanvasElement }>();
+
   constructor(canvas: HTMLCanvasElement, onImageLoaded?: () => void) {
     this.canvas = canvas;
     const context = canvas.getContext('2d', { willReadFrequently: true });
     if (!context) {
-      throw new Error('Impossibile acquisire il contesto Canvas 2D');
+      throw new Error('Could not acquire the Canvas 2D context');
     }
     this.ctx = context;
     this.onImageLoaded = onImageLoaded ?? null;
+  }
+
+  /** Sets the on-screen thickness of the selection brush. */
+  public setBrushWidth(width: number): void {
+    this.brushWidth = width;
   }
 
   public setTheme(theme: RenderTheme): void {
@@ -184,7 +205,7 @@ export class RenderEngine {
       })
       .catch(() => {
         this.loading.delete(src);
-        console.warn('[Nabu] Impossibile caricare il contenuto di un livello.');
+        console.warn('[Nabu] Could not load a layer image.');
       });
 
     return null;
@@ -229,13 +250,52 @@ export class RenderEngine {
     this.ctx.restore();
   }
 
+  /**
+   * Returns the adjusted version of a layer, rebuilding it only when the image
+   * or one of its sliders actually changed.
+   */
+  private getAdjusted(
+    doc: NabuDocument,
+    layerId: string,
+    image: HTMLImageElement,
+    width: number,
+    height: number
+  ): CanvasImageSource | null {
+    const layer = doc.layers[layerId];
+    const key = adjustmentKey(layer?.adjustments);
+    if (!key || !layer?.adjustments) {
+      this.adjusted.delete(layerId);
+      return null;
+    }
+
+    const signature = `${layer.imageDataUrl?.length ?? 0}|${width}x${height}|${key}`;
+    const cached = this.adjusted.get(layerId);
+    if (cached && cached.signature === signature) return cached.canvas;
+
+    const canvas = this.adjuster.process(image, width, height, layer.adjustments);
+    if (!canvas) {
+      this.adjusted.delete(layerId);
+      return null;
+    }
+
+    this.adjusted.set(layerId, { signature, canvas });
+    return canvas;
+  }
+
+  /** True when the GPU pipeline for adjustments is usable. */
+  public get adjustmentsAvailable(): boolean {
+    return this.adjuster.available;
+  }
+
   /** Renders the document, applying pan, zoom and blend modes. */
   public render(
     doc: NabuDocument,
     viewport: ViewportTransform,
     containerWidth: number,
     containerHeight: number,
-    selection?: Selection | null
+    selection?: Selection | null,
+    /** True while the pointer is still down, so the stroke is painted live. */
+    drawingSelection = false
   ): void {
     const { ctx } = this;
 
@@ -251,33 +311,87 @@ export class RenderEngine {
     ctx.translate(-doc.width / 2, -doc.height / 2);
 
     this.drawCheckerboard(doc.width, doc.height, viewport.zoom);
-    paintLayers(ctx, doc, this.theme, (src) => this.getImage(src));
+    paintLayers(
+      ctx,
+      doc,
+      this.theme,
+      (src) => this.getImage(src),
+      (layerId, image, width, height) =>
+        this.getAdjusted(doc, layerId, image, width, height)
+    );
 
     // No frame around the document: the photo must not look like a sheet.
 
-    if (selection && selection.path.length > 1) {
-      this.drawSelection(selection, viewport.zoom);
+    if (selection && selection.path.length > 0) {
+      this.drawSelection(selection, viewport.zoom, drawingSelection);
     }
 
     ctx.restore();
   }
 
-  /** Dashed lasso outline, of constant thickness on screen. */
-  private drawSelection(selection: Selection, zoom: number): void {
+  /**
+   * Draws the selection.
+   *
+   * While the pointer is down it is painted as a thick, soft, glowing brush
+   * stroke that follows the finger — the gesture reads as "smearing over what
+   * interests me", not as "plotting a polygon". Once released it settles into a
+   * filled region with a crisp outline.
+   */
+  private drawSelection(selection: Selection, zoom: number, drawing: boolean): void {
     const { ctx } = this;
+    const path = selection.path;
+    if (path.length === 0) return;
+
     ctx.save();
 
-    ctx.beginPath();
-    ctx.moveTo(selection.path[0].x, selection.path[0].y);
-    for (const point of selection.path.slice(1)) {
-      ctx.lineTo(point.x, point.y);
+    const trace = () => {
+      ctx.beginPath();
+      ctx.moveTo(path[0].x, path[0].y);
+      for (const point of path.slice(1)) ctx.lineTo(point.x, point.y);
+    };
+
+    if (drawing) {
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      // Three passes of decreasing width build a soft halo without needing a
+      // blur filter, which is expensive at high zoom.
+      const passes: Array<[number, string]> = [
+        [this.brushWidth * 2.0, 'rgba(167, 139, 250, 0.16)'],
+        [this.brushWidth * 1.2, 'rgba(167, 139, 250, 0.32)'],
+        [this.brushWidth * 0.5, 'rgba(233, 226, 255, 0.85)'],
+      ];
+
+      for (const [width, colour] of passes) {
+        ctx.lineWidth = width / zoom;
+        ctx.strokeStyle = colour;
+        trace();
+        ctx.stroke();
+      }
+
+      // A single tap still deserves a mark.
+      if (path.length === 1) {
+        ctx.beginPath();
+        ctx.arc(path[0].x, path[0].y, this.brushWidth / zoom, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(167, 139, 250, 0.32)';
+        ctx.fill();
+      }
+
+      ctx.restore();
+      return;
     }
+
+    // Settled selection: tinted fill plus a light-over-dark dashed outline that
+    // stays legible on any image.
+    trace();
     ctx.closePath();
 
-    // Light-over-dark double stroke: stays legible on any image.
+    ctx.fillStyle = 'rgba(167, 139, 250, 0.14)';
+    ctx.fill();
+
     ctx.lineWidth = 1.5 / zoom;
     ctx.setLineDash([6 / zoom, 4 / zoom]);
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
     ctx.stroke();
     ctx.lineDashOffset = 6 / zoom;
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
@@ -321,7 +435,21 @@ export async function exportDocumentToPng(
     )
   );
 
-  paintLayers(ctx, doc, theme, (src) => resolved.get(src) ?? null);
+  // The exported file must match what is on screen, so the same adjustment
+  // pipeline runs here too.
+  const adjuster = new AdjustmentProcessor();
+
+  paintLayers(
+    ctx,
+    doc,
+    theme,
+    (src) => resolved.get(src) ?? null,
+    (layerId, image, width, height) => {
+      const layer = doc.layers[layerId];
+      if (!layer?.adjustments) return null;
+      return adjuster.process(image, width, height, layer.adjustments);
+    }
+  );
 
   return out.toDataURL('image/png');
 }

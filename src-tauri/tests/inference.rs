@@ -12,6 +12,8 @@ use ort::session::builder::GraphOptimizationLevel;
 
 #[path = "../src/ai/imaging.rs"]
 mod imaging;
+#[path = "../src/ai/error.rs"]
+mod error;
 #[path = "../src/ai/tasks.rs"]
 mod tasks;
 
@@ -147,4 +149,57 @@ fn upscale_doubles_the_resolution() {
         "struttura dell'immagine non conservata dopo l'upscaling"
     );
     assert_eq!(center[3], 255, "canale alfa perso");
+}
+
+/// Two shapes on a plain field: a box drawn around one of them must come back
+/// with that shape isolated and the other one gone. If the box prompt were
+/// ignored, or the mask misaligned, the second shape would survive.
+#[test]
+#[ignore = "requires the SlimSAM models on disk"]
+fn segmentation_isolates_the_boxed_object() {
+    let dir = std::path::PathBuf::from(std::env::var("APPDATA").expect("APPDATA"))
+        .join("com.editor.nabu/models/slimsam-77");
+    if !dir.join("vision_encoder.onnx").is_file() {
+        eprintln!("SlimSAM not downloaded, skipping");
+        return;
+    }
+
+    let mut encoder = open_session(&dir.join("vision_encoder.onnx"));
+    let mut decoder = open_session(&dir.join("prompt_encoder_mask_decoder.onnx"));
+
+    // Left disc and right square, well separated on a dark field.
+    let size = 512u32;
+    let mut source = RgbaImage::new(size, size);
+    for (x, y, px) in source.enumerate_pixels_mut() {
+        let dx = x as f32 - 140.0;
+        let dy = y as f32 - 256.0;
+        let in_disc = dx * dx + dy * dy <= 80.0 * 80.0;
+        let in_square = (330..=450).contains(&x) && (196..=316).contains(&y);
+        *px = if in_disc {
+            Rgba([240, 80, 60, 255])
+        } else if in_square {
+            Rgba([70, 220, 120, 255])
+        } else {
+            Rgba([16, 18, 24, 255])
+        };
+    }
+
+    // Box loosely around the disc only.
+    let prompt = tasks::BoxPrompt { x0: 45.0, y0: 165.0, x1: 235.0, y1: 350.0 };
+    let result = tasks::segment_object(&mut encoder, &mut decoder, &source, prompt, &noop)
+        .expect("segmentation");
+
+    assert_eq!(result.dimensions(), source.dimensions());
+
+    let disc_alpha = result.get_pixel(140, 256)[3];
+    let square_alpha = result.get_pixel(390, 256)[3];
+    let field_alpha = result.get_pixel(500, 20)[3];
+    println!("alpha disc={disc_alpha} square={square_alpha} field={field_alpha}");
+
+    assert!(disc_alpha > 170, "boxed object not kept: alpha={disc_alpha}");
+    assert!(
+        square_alpha < disc_alpha / 2,
+        "the object outside the box survived: disc={disc_alpha} square={square_alpha}"
+    );
+    assert!(field_alpha < 128, "background kept: alpha={field_alpha}");
 }

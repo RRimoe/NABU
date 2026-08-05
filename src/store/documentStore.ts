@@ -7,6 +7,8 @@ import {
   ViewportTransform,
   BlendMode,
   ThemeMode,
+  Adjustments,
+  NEUTRAL_ADJUSTMENTS,
   Selection,
   RefineMode,
   BACKGROUND_LAYER_ID,
@@ -55,6 +57,12 @@ interface DocumentState {
   /** Active only after a cutout: brush that corrects the transparency. */
   refineMode: RefineMode | null;
   refineSize: number;
+  /** On-screen thickness of the selection brush, in pixels. */
+  selectionBrush: number;
+
+  /** The opening bubble is shown once per document, until dismissed. */
+  welcomeDismissed: boolean;
+  dismissWelcome: () => void;
 
   // AI state
   isAIBusy: boolean;
@@ -103,6 +111,14 @@ interface DocumentState {
   toggleLayerVisibility: (layerId: string) => void;
   toggleLayerLock: (layerId: string) => void;
   setLayerBlendMode: (layerId: string, blendMode: BlendMode) => void;
+  /**
+   * Moves one adjustment slider. Dragging must not fill the history with a
+   * step per pixel of travel, so this does not record one; `commitAdjustments`
+   * closes the gesture with a single undoable step.
+   */
+  setAdjustment: (layerId: string, key: keyof Adjustments, value: number) => void;
+  commitAdjustments: (layerId: string) => void;
+  resetAdjustments: (layerId: string) => void;
   setLayerOpacity: (layerId: string, opacity: number) => void;
   reorderLayers: (sourceIndex: number, destIndex: number) => void;
 
@@ -220,6 +236,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
 
     refineMode: null,
     refineSize: 40,
+    selectionBrush: 26,
+
+    welcomeDismissed: false,
+    dismissWelcome: () => set({ welcomeDismissed: true }),
 
     isAIBusy: false,
     aiProgress: 0,
@@ -273,6 +293,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         order: [...state.order, withImage.id],
         activeId: withImage.id,
         refineMode: null,
+        welcomeDismissed: false,
       }));
       get().requestFitToScreen();
     },
@@ -298,7 +319,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
 
     setActiveDocument: (id) => {
       if (!get().sessions[id]) return;
-      set({ activeId: id, refineMode: null });
+      set({ activeId: id, refineMode: null, welcomeDismissed: false });
     },
 
     // --- Viewport --------------------------------------------------------
@@ -443,6 +464,40 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     },
 
     setLayerBlendMode: (layerId, blendMode) => get().updateLayer(layerId, { blendMode }),
+
+    setAdjustment: (layerId, key, value) =>
+      commit(
+        (current) => {
+          const layer = current.layers[layerId];
+          if (!layer) return current;
+          const adjustments = { ...NEUTRAL_ADJUSTMENTS, ...layer.adjustments, [key]: value };
+          return {
+            ...current,
+            layers: { ...current.layers, [layerId]: { ...layer, adjustments } },
+          };
+        },
+        { history: false }
+      ),
+
+    commitAdjustments: (layerId) =>
+      commit((current) => {
+        const layer = current.layers[layerId];
+        if (!layer) return current;
+        // Re-writing the same values is enough: `commit` records the step.
+        return {
+          ...current,
+          layers: { ...current.layers, [layerId]: { ...layer } },
+        };
+      }),
+
+    resetAdjustments: (layerId) =>
+      commit((current) => {
+        const layer = current.layers[layerId];
+        if (!layer) return current;
+        const next = { ...layer };
+        delete next.adjustments;
+        return { ...current, layers: { ...current.layers, [layerId]: next } };
+      }),
     setLayerOpacity: (layerId, opacity) => get().updateLayer(layerId, { opacity }),
 
     reorderLayers: (sourceIndex, destIndex) =>

@@ -1,7 +1,7 @@
 // src/components/SelectionActions.tsx
-import { Sparkles, TrendingUp, Brush, X, Lightbulb } from 'lucide-react';
+import { Scissors, Brush, X, Lightbulb } from 'lucide-react';
 import { useDocumentStore, useActiveDocument } from '../store/documentStore';
-import { removeBackground, upscale } from '../ai/operations';
+import { extractObject } from '../ai/operations';
 import { useT } from '../i18n';
 
 interface Props {
@@ -44,18 +44,20 @@ export const SelectionActions: React.FC<Props> = ({ x, y }) => {
       </div>
 
       <div className="bubble-actions">
-        <button onClick={() => void removeBackground()} disabled={isAIBusy}>
-          <Sparkles size={14} />
-          <span>{t('bubble.remove')}</span>
-        </button>
-
-        <button onClick={() => void upscale()} disabled={isAIBusy}>
-          <TrendingUp size={14} />
-          <span>{t('bubble.enhance')}</span>
+        {/* Only actions scoped to the selection belong here. Removing the
+            background and enlarging work on the whole photo, so they live in
+            the opening bubble and in the command line instead. */}
+        <button
+          onClick={() => void extractObject()}
+          disabled={isAIBusy}
+          title={t('bubble.extract.hint')}
+        >
+          <Scissors size={14} />
+          <span>{t('bubble.extract')}</span>
         </button>
 
         {canRefine && (
-          <button onClick={() => setRefineMode('erase')}>
+          <button onClick={() => setRefineMode('erase')} title={t('bubble.refine.hint')}>
             <Brush size={14} />
             <span>{t('bubble.refine')}</span>
           </button>

@@ -10,6 +10,8 @@ import { DocumentTabs } from './components/DocumentTabs';
 import { ModelManager } from './components/ModelManager';
 import { RefineBar } from './components/RefineBar';
 import { EmptyState } from './components/EmptyState';
+import { SettingsPanel } from './components/SettingsPanel';
+import { BusyOverlay } from './components/BusyOverlay';
 import { useDocumentStore, useActiveDocument, useHasDocuments } from './store/documentStore';
 import { useModelStore } from './store/modelStore';
 import { useI18nStore, useT } from './i18n';
@@ -40,6 +42,7 @@ function App() {
   const activityCount = useActivityStore((s) => s.entries.length);
 
   const [modelsOpen, setModelsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [panelsOpen, setPanelsOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -163,6 +166,12 @@ function App() {
     void runIntent(intent);
   }, []);
 
+  /** "Edit" in the rail puts the cursor in the prompt: that is its whole job. */
+  const focusPrompt = useCallback(() => {
+    const input = document.querySelector<HTMLInputElement>('.command-input');
+    input?.focus();
+  }, []);
+
   return (
     <div
       className={`nabu-app ${showPanels ? 'panels-open' : ''}`}
@@ -195,14 +204,17 @@ function App() {
       <LeftRail
         onOpen={() => fileInputRef.current?.click()}
         onExport={handleExport}
-        onSettings={() => setModelsOpen(true)}
-        canExport={hasDocuments}
+        onSettings={() => setSettingsOpen(true)}
+        onEdit={focusPrompt}
+        hasPhoto={hasDocuments}
       />
 
       <div className="nabu-stage">
         <DocumentTabs />
 
         <div className="nabu-canvas-area">
+          <BusyOverlay />
+
           {hasDocuments ? (
             <CanvasViewport />
           ) : (
@@ -223,6 +235,15 @@ function App() {
         panelsOpen={showPanels}
         panelsAvailable={panelsAvailable}
         onTogglePanels={() => setPanelsOpen((o) => !o)}
+      />
+
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onOpenModels={() => {
+          setSettingsOpen(false);
+          setModelsOpen(true);
+        }}
       />
 
       <ModelManager open={modelsOpen} onClose={() => setModelsOpen(false)} />
