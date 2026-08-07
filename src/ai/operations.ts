@@ -222,12 +222,15 @@ export async function extractObject(): Promise<void> {
 }
 
 export async function runIntent(intent: Intent): Promise<void> {
-  switch (intent.kind) {
-    case 'remove-background':
-      return removeBackground();
-    case 'upscale':
-      return upscale();
-    default:
-      return;
+  if (intent.kind === 'tool') {
+    switch (intent.call.name) {
+      case 'remove_background':
+        return removeBackground();
+      case 'upscale':
+        return upscale();
+      default:
+        return;
+    }
   }
 }
+

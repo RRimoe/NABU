@@ -6,10 +6,15 @@ import {
   useViewport,
   useSelection,
 } from '../store/documentStore';
-import { RenderEngine, RENDER_THEMES, loadImage } from '../engine/RenderEngine';
+import {
+  RenderEngine,
+  RENDER_THEMES,
+  loadImage,
+  TRANSFORM_HANDLE,
+} from '../engine/RenderEngine';
 import type { Point2D } from '../types/document';
 import { SelectionActions } from './SelectionActions';
-import { WelcomeBubble } from './WelcomeBubble';
+
 
 /** Minimum distance between two lasso points, in document pixels. */
 const LASSO_STEP = 3;
@@ -40,6 +45,8 @@ export const CanvasViewport: React.FC = () => {
     fitRequestId,
     activeId,
     selectionBrush,
+    setLayerTransform,
+    commitTransform,
   } = useDocumentStore();
 
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
@@ -48,11 +55,29 @@ export const CanvasViewport: React.FC = () => {
   const [draftLasso, setDraftLasso] = useState<Point2D[] | null>(null);
 
   const startPanPos = useRef({ x: 0, y: 0 });
+  /** Grab in progress on the transform box, if any. */
+  const grabRef = useRef<{
+    corner: 'nw' | 'ne' | 'sw' | 'se' | 'move';
+    startPoint: Point2D;
+    origin: { x: number; y: number; scaleX: number; scaleY: number };
+    size: { width: number; height: number };
+  } | null>(null);
   const lassoRef = useRef<Point2D[] | null>(null);
   const refineStrokeRef = useRef<Point2D[] | null>(null);
 
   const docRef = useRef(doc);
   docRef.current = doc;
+
+  /**
+   * The layer whose handles are shown.
+   *
+   * Only when there is something to place: on a single-layer document there is
+   * nothing to move it relative to, and the box would just be in the way.
+   */
+  const transformLayerId =
+    doc.rootLayerIds.length > 1 && doc.activeLayerId && !refineMode
+      ? doc.activeLayerId
+      : null;
 
   const [frameTick, setFrameTick] = useState(0);
   const requestFrame = useCallback(() => setFrameTick((t) => t + 1), []);
@@ -101,9 +126,10 @@ export const CanvasViewport: React.FC = () => {
       containerSize.width,
       containerSize.height,
       shown,
-      Boolean(draftLasso)
+      Boolean(draftLasso),
+      transformLayerId
     );
-  }, [doc, viewport, containerSize, frameTick, selection, draftLasso]);
+  }, [doc, viewport, containerSize, frameTick, selection, draftLasso, transformLayerId]);
 
   // "Fit to screen" requested by the store
   const handledFitRef = useRef(0);
@@ -187,6 +213,28 @@ export const CanvasViewport: React.FC = () => {
     };
   };
 
+  /** Which handle, if any, sits under a point. Reach is in screen pixels. */
+  const handleUnder = (point: Point2D) => {
+    if (!transformLayerId) return null;
+    const layer = doc.layers[transformLayerId];
+    if (!layer) return null;
+
+    const width = (layer.width ?? doc.width) * (layer.transform.scaleX || 1);
+    const height = (layer.height ?? doc.height) * (layer.transform.scaleY || 1);
+    const { x, y } = layer.transform;
+    const reach = TRANSFORM_HANDLE / viewport.zoom;
+
+    const near = (px: number, py: number) =>
+      Math.abs(point.x - px) <= reach && Math.abs(point.y - py) <= reach;
+
+    if (near(x + width / 2, y + height / 2)) return 'move' as const;
+    if (near(x, y)) return 'nw' as const;
+    if (near(x + width, y)) return 'ne' as const;
+    if (near(x, y + height)) return 'sw' as const;
+    if (near(x + width, y + height)) return 'se' as const;
+    return null;
+  };
+
   const wantsPan = (button: number) => button === 1 || activeTool === 'pan' || isSpaceDown;
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -201,6 +249,27 @@ export const CanvasViewport: React.FC = () => {
 
     if (refineMode) {
       refineStrokeRef.current = [point];
+      return;
+    }
+
+    // A handle wins over the lasso, so placing a layer never starts a selection.
+    const corner = handleUnder(point);
+    if (corner && transformLayerId) {
+      const layer = doc.layers[transformLayerId];
+      grabRef.current = {
+        corner,
+        startPoint: point,
+        origin: {
+          x: layer.transform.x,
+          y: layer.transform.y,
+          scaleX: layer.transform.scaleX || 1,
+          scaleY: layer.transform.scaleY || 1,
+        },
+        size: {
+          width: layer.width ?? doc.width,
+          height: layer.height ?? doc.height,
+        },
+      };
       return;
     }
 
@@ -221,6 +290,12 @@ export const CanvasViewport: React.FC = () => {
 
     const point = toDocumentCoords(e.clientX, e.clientY);
 
+    const grab = grabRef.current;
+    if (grab) {
+      applyGrab(grab, point);
+      return;
+    }
+
     if (refineStrokeRef.current) {
       refineStrokeRef.current.push(point);
       return;
@@ -240,6 +315,12 @@ export const CanvasViewport: React.FC = () => {
   const handleMouseUp = () => {
     setIsPanning(false);
 
+    if (grabRef.current) {
+      grabRef.current = null;
+      if (transformLayerId) commitTransform(transformLayerId);
+      return;
+    }
+
     if (refineStrokeRef.current) {
       const stroke = refineStrokeRef.current;
       refineStrokeRef.current = null;
@@ -258,6 +339,49 @@ export const CanvasViewport: React.FC = () => {
       return;
     }
     setSelection({ path: lasso });
+  };
+
+  /** Moves or scales the layer while a handle is dragged. */
+  const applyGrab = (grab: NonNullable<typeof grabRef.current>, point: Point2D) => {
+    if (!transformLayerId) return;
+    const dx = point.x - grab.startPoint.x;
+    const dy = point.y - grab.startPoint.y;
+
+    if (grab.corner === 'move') {
+      setLayerTransform(transformLayerId, {
+        x: grab.origin.x + dx,
+        y: grab.origin.y + dy,
+      });
+      return;
+    }
+
+    const width = grab.size.width * grab.origin.scaleX;
+    const height = grab.size.height * grab.origin.scaleY;
+
+    // Dragging a corner pins the opposite one, which is what everyone expects.
+    // The aspect ratio follows whichever axis moved more, so the layer never
+    // distorts into something the user did not ask for.
+    const growX = grab.corner === 'ne' || grab.corner === 'se' ? dx : -dx;
+    const growY = grab.corner === 'sw' || grab.corner === 'se' ? dy : -dy;
+    const factor = Math.max(
+      0.02,
+      1 + (Math.abs(growX) > Math.abs(growY) ? growX / width : growY / height)
+    );
+
+    const scaleX = grab.origin.scaleX * factor;
+    const scaleY = grab.origin.scaleY * factor;
+    const newWidth = grab.size.width * scaleX;
+    const newHeight = grab.size.height * scaleY;
+
+    const anchorRight = grab.corner === 'nw' || grab.corner === 'sw';
+    const anchorBottom = grab.corner === 'nw' || grab.corner === 'ne';
+
+    setLayerTransform(transformLayerId, {
+      scaleX,
+      scaleY,
+      x: anchorRight ? grab.origin.x + (width - newWidth) : grab.origin.x,
+      y: anchorBottom ? grab.origin.y + (height - newHeight) : grab.origin.y,
+    });
   };
 
   /**
@@ -373,16 +497,10 @@ export const CanvasViewport: React.FC = () => {
       <canvas ref={canvasRef} className="main-render-canvas" />
 
       {anchor && !refineMode && <SelectionActions x={anchor.x} y={anchor.y} />}
-
-      {!selection && !draftLasso && !refineMode && (
-        <WelcomeBubble
-          x={docLeft + (viewport.zoom * doc.width) / 2}
-          y={docTop + (viewport.zoom * doc.height) / 2}
-        />
-      )}
     </div>
   );
 };
+
 
 /** Signed polygon area: tells a real lasso from an accidental click. */
 function pathArea(path: Point2D[]): number {

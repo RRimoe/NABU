@@ -14,12 +14,11 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { BusyOverlay } from './components/BusyOverlay';
 import { useDocumentStore, useActiveDocument, useHasDocuments } from './store/documentStore';
 import { useModelStore } from './store/modelStore';
+import { useSceneStore } from './store/sceneStore';
 import { useI18nStore, useT } from './i18n';
 import { describeError } from './i18n/backendError';
 import { useActivityStore } from './store/activityStore';
 import { exportDocumentToPng, RENDER_THEMES, loadImage } from './engine/RenderEngine';
-import { runIntent } from './ai/operations';
-import type { Intent } from './ai/intents';
 import './App.css';
 
 function App() {
@@ -101,6 +100,9 @@ function App() {
                 image.naturalWidth,
                 image.naturalHeight
               );
+              // Fast pass of the vision engine, in the background: by the time
+              // the first request mentions an object, the scene already exists.
+              void useSceneStore.getState().analyzeActive();
             } catch {
               alert(t('error.unreadableImage', { name: file.name }));
             }
@@ -162,10 +164,6 @@ function App() {
     }
   }, [doc, theme, t]);
 
-  const handleIntent = useCallback((intent: Intent) => {
-    void runIntent(intent);
-  }, []);
-
   /** "Edit" in the rail puts the cursor in the prompt: that is its whole job. */
   const focusPrompt = useCallback(() => {
     const input = document.querySelector<HTMLInputElement>('.command-input');
@@ -224,7 +222,7 @@ function App() {
           {refineMode ? (
             <RefineBar />
           ) : (
-            <CommandBar onRun={handleIntent} busy={isAIBusy} disabled={!hasDocuments} />
+            <CommandBar busy={isAIBusy} disabled={!hasDocuments} />
           )}
         </div>
       </div>

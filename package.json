@@ -8,7 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "check:locales": "node scripts/check-locales.mjs"
+    "check:locales": "node scripts/check-locales.mjs",
+    "tauri:llm": "tauri dev --features llm",
+    "build:llm": "tauri build --features llm"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

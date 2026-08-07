@@ -151,6 +151,40 @@ fn upscale_doubles_the_resolution() {
     assert_eq!(center[3], 255, "canale alfa perso");
 }
 
+/// Detection smoke test on a synthetic image.
+///
+/// A painted scene is not a photograph, so no specific class is asserted: what
+/// must hold is that the whole manifest-driven pipeline — preprocessing,
+/// inference, DETR decoding, coordinate mapping — runs and returns boxes that
+/// lie inside the image with sane confidences.
+#[test]
+#[ignore = "requires the D-FINE model (15 MB)"]
+fn detection_pipeline_runs_end_to_end() {
+    let path = ensure_model(
+        "dfine-nano.onnx",
+        "https://huggingface.co/onnx-community/dfine_n_coco-ONNX/resolve/main/onnx/model.onnx",
+    );
+    let mut session = open_session(&path);
+
+    let manifest = nabu_lib::ai::vision::manifest::ModelManifest::parse(include_str!(
+        "../manifests/dfine-nano.json"
+    ))
+    .expect("manifest");
+
+    let source = test_image(640);
+    let detections = nabu_lib::ai::vision::detect::run(&mut session, &manifest, &source, &noop)
+        .expect("detection");
+
+    println!("{} detections", detections.len());
+    for det in &detections {
+        println!("  {:<14} {:.2}  {:?}", det.label, det.confidence, det.bbox);
+        assert!((0.0..=1.0).contains(&det.confidence));
+        let [x0, y0, x1, y1] = det.bbox;
+        assert!(x0 >= 0.0 && y0 >= 0.0 && x1 <= 640.0 && y1 <= 640.0);
+        assert!(x1 > x0 && y1 > y0, "degenerate box survived decoding");
+    }
+}
+
 /// Two shapes on a plain field: a box drawn around one of them must come back
 /// with that shape isolated and the other one gone. If the box prompt were
 /// ignored, or the mask misaligned, the second shape would survive.

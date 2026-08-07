@@ -6,7 +6,7 @@
 //! every subsequent run.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use ort::ep::ExecutionProvider;
@@ -68,10 +68,15 @@ pub struct SessionCache {
 }
 
 impl SessionCache {
-    /// Drops a cached session: used when a model is deleted from disk, since the
-    /// session would otherwise keep pointing at a file that no longer exists.
+    /// Drops the cached sessions of a model: used when it is deleted from
+    /// disk, since a session would otherwise keep pointing at a file that no
+    /// longer exists. Matches by prefix because the cache is keyed per file.
     pub fn invalidate(&self, model_id: &str) {
-        self.sessions.lock().unwrap().remove(model_id);
+        let prefix = format!("{model_id}/");
+        self.sessions
+            .lock()
+            .unwrap()
+            .retain(|key, _| !key.starts_with(&prefix));
     }
 
     /// Returns the session for a model, creating it on first request.
@@ -82,19 +87,27 @@ impl SessionCache {
         file_name: &str,
     ) -> NabuResult<Arc<Mutex<Session>>> {
         let key = format!("{model_id}/{file_name}");
+        let path = resolve_model_file(app, model_id, file_name)?;
+        self.get_or_load_at(&key, &path)
+    }
 
-        if let Some(existing) = self.sessions.lock().unwrap().get(&key) {
+    /// Returns the session for a model file at an explicit path.
+    ///
+    /// This is the entry point for sideloaded models: they are described by a
+    /// manifest on disk rather than by the built-in catalogue, so there is no
+    /// registry entry to resolve the path through.
+    pub fn get_or_load_at(&self, key: &str, path: &Path) -> NabuResult<Arc<Mutex<Session>>> {
+        if let Some(existing) = self.sessions.lock().unwrap().get(key) {
             return Ok(existing.clone());
         }
 
-        let path = resolve_model_file(app, model_id, file_name)?;
-        let session = build_session(&path)?;
+        let session = build_session(&path.to_path_buf())?;
         let session = Arc::new(Mutex::new(session));
 
         self.sessions
             .lock()
             .unwrap()
-            .insert(key, session.clone());
+            .insert(key.to_string(), session.clone());
 
         Ok(session)
     }

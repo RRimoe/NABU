@@ -12,8 +12,31 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+default = []
+# The language router is optional: it pulls in a second inference engine, and a
+# contributor fixing a button should not have to compile it.
+llm = ["dep:mistralrs"]
+
+# Inference is arithmetic in tight loops, and an unoptimised build runs it tens
+# of times slower — slowly enough that loading the language model during
+# `tauri dev` looks like the application has hung.
+#
+# Dependencies are compiled fully optimised: they rarely change, so the cost is
+# paid once. Nabu's own code sits at level 1, which is enough for the pixel
+# loops in the image pipelines while keeping incremental rebuilds quick and the
+# code debuggable.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
 [dependencies]
 tauri = { version = "2", features = [] }
+# Pure-Rust LLM engine, used only for the intent router. Native tool calling
+# means the model returns a structured call instead of prose to be parsed.
+mistralrs = { version = "0.8.1", optional = true }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

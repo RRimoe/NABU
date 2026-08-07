@@ -6,4 +6,8 @@ pub mod engine;
 pub mod error;
 pub mod imaging;
 pub mod registry;
+#[cfg(feature = "llm")]
+pub mod router;
 pub mod tasks;
+pub mod tools;
+pub mod vision;

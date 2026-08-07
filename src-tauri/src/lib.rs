@@ -1,11 +1,15 @@
 // src-tauri/src/lib.rs
-mod ai;
+// Public so integration tests can drive the engine through the same modules
+// the application uses, instead of re-including source files by path.
+pub mod ai;
 
 use std::sync::Arc;
 
 use ai::download::{self, DownloadManager, ModelStatus};
 use ai::engine::{self, SessionCache};
 use ai::error::{self, NabuError};
+use ai::tools::ToolCall;
+use ai::vision::{self, scene::SceneModel};
 use ai::{imaging, registry, tasks};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -158,6 +162,113 @@ async fn segment_object(
     .map_err(error::unknown)?
 }
 
+/// Fast pass of the vision engine: what is in this image?
+///
+/// Runs the best installed detector plus cheap pixel statistics and returns
+/// the scene model — the shared representation the language router reasons
+/// over. It is invoked once per image in the background; requests that mention
+/// objects then resolve against this without touching any pixels again.
+#[tauri::command]
+async fn analyze_scene(
+    app: AppHandle,
+    cache: State<'_, Arc<SessionCache>>,
+    image_data_url: String,
+) -> Result<SceneModel, NabuError> {
+    let cache = cache.inner().clone();
+    let handle = app.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let source = imaging::decode_data_url(&image_data_url)?;
+        let detector = vision::catalog::best_detector(&handle)?;
+
+        let emit = |percent: u32, stage: &str| {
+            let _ = handle.emit(
+                "ai-task-progress",
+                AiProgress { percent, stage: stage.to_string() },
+            );
+        };
+        emit(5, "load");
+
+        let key = format!("{}/{}", detector.model_id, detector.manifest.file);
+        let session = cache.get_or_load_at(&key, &detector.path)?;
+        let mut session = session.lock().map_err(|_| error::session_unavailable())?;
+
+        let detections = vision::detect::run(&mut session, &detector.manifest, &source, &emit)?;
+        emit(100, "done");
+
+        Ok(vision::scene::build_scene(&source, detections, &detector.model_id))
+    })
+    .await
+    .map_err(error::unknown)?
+}
+
+/// Id of the language model the router uses.
+const ROUTER_MODEL: &str = "qwen2.5-1.5b-instruct";
+
+/// Whether a typed request can be understood rather than keyword-matched.
+///
+/// False when the build has no language engine, or when the model has not been
+/// downloaded. The interface uses it to decide whether to offer free-form
+/// requests or to stay with the phrases it can pattern-match.
+#[tauri::command]
+fn router_available(app: AppHandle) -> bool {
+    if !cfg!(feature = "llm") {
+        return false;
+    }
+    registry::find(ROUTER_MODEL)
+        .map(|spec| download::status_of(&app, spec).state == download::InstallState::Ready)
+        .unwrap_or(false)
+}
+
+/// Turns a typed sentence into a call to one of Nabu's tools.
+///
+/// The model chooses a tool and fills in its arguments; it never edits an image
+/// and never writes anything the user reads. `has_selection` is passed along
+/// because it changes which tool is the right answer for the same sentence.
+#[cfg(feature = "llm")]
+#[tauri::command]
+async fn interpret_command(
+    app: AppHandle,
+    text: String,
+    has_selection: bool,
+    scene: Option<String>,
+) -> Result<ToolCall, NabuError> {
+    let spec = registry::find(ROUTER_MODEL).ok_or_else(|| error::unknown_model(ROUTER_MODEL))?;
+    if download::status_of(&app, spec).state != download::InstallState::Ready {
+        return Err(error::model_not_downloaded(spec.name));
+    }
+
+    let dir = download::model_dir(&app, ROUTER_MODEL)?;
+    let file = spec.files[0].file_name;
+
+    let mut context = String::from(if has_selection {
+        "The user has selected a region of the photo."
+    } else {
+        "Nothing is selected; the request applies to the whole photo."
+    });
+
+    // The scene is how the router sees: a request like "the red car" resolves
+    // against this list, so the model never needs the pixels themselves.
+    if let Some(scene) = scene.filter(|s| !s.trim().is_empty()) {
+        context.push_str("\n\nSCENE — objects detected in the photo:\n");
+        context.push_str(&scene);
+    }
+
+    ai::router::interpret(&dir.to_string_lossy(), file, &text, &context).await
+}
+
+/// Without the language engine there is nothing to interpret with.
+#[cfg(not(feature = "llm"))]
+#[tauri::command]
+async fn interpret_command(
+    _app: AppHandle,
+    _text: String,
+    _has_selection: bool,
+    _scene: Option<String>,
+) -> Result<ToolCall, NabuError> {
+    Err(error::router_unavailable())
+}
+
 /// Accelerator detected on this machine, shown in the status bar.
 #[tauri::command]
 fn accelerator_label() -> String {
@@ -242,6 +353,9 @@ pub fn run() {
             reveal_models_directory,
             list_languages,
             accelerator_label,
+            router_available,
+            interpret_command,
+            analyze_scene,
             segment_object,
             process_ai_task
         ])

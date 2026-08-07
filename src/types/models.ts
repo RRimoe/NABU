@@ -1,7 +1,14 @@
 // src/types/models.ts
 // Mirrors the structures serialised by src-tauri/src/ai.
 
-export type ModelTaskKind = 'background-removal' | 'upscale' | 'segmentation';
+export type ModelTaskKind =
+  | 'background-removal'
+  | 'upscale'
+  | 'segmentation'
+  | 'language'
+  | 'inpainting'
+  | 'face-restoration'
+  | 'detection';
 
 export type InstallState = 'not-downloaded' | 'partial' | 'ready';
 
@@ -44,7 +51,12 @@ export const TASK_KEYS: Record<ModelTaskKind, string> = {
   'background-removal': 'task.backgroundRemoval',
   upscale: 'task.upscale',
   segmentation: 'task.segmentation',
+  language: 'task.language',
+  inpainting: 'task.inpainting',
+  'face-restoration': 'task.faceRestoration',
+  detection: 'task.detection',
 };
+
 
 /**
  * Formats a byte count using binary units.

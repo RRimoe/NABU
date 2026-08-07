@@ -1,11 +1,14 @@
 // src/components/StatusBar.tsx
+import { useState } from 'react';
 import { RotateCcw, RotateCw, Maximize2, PanelRight } from 'lucide-react';
 import {
   useDocumentStore,
   useViewport,
+  useActiveDocument,
   useCanUndo,
   useCanRedo,
 } from '../store/documentStore';
+import { ResizePopover } from './ResizePopover';
 import { useModelStore } from '../store/modelStore';
 import { useT } from '../i18n';
 
@@ -18,6 +21,8 @@ interface Props {
 
 export const StatusBar: React.FC<Props> = ({ panelsOpen, panelsAvailable, onTogglePanels }) => {
   const viewport = useViewport();
+  const doc = useActiveDocument();
+  const [resizing, setResizing] = useState(false);
   const { undo, redo, setViewport, requestFitToScreen } = useDocumentStore();
   const canUndo = useCanUndo();
   const canRedo = useCanRedo();
@@ -41,6 +46,19 @@ export const StatusBar: React.FC<Props> = ({ panelsOpen, panelsAvailable, onTogg
       </div>
 
       <div className="status-right">
+        {doc && (
+          <div className="status-size-wrap">
+            {resizing && <ResizePopover onClose={() => setResizing(false)} />}
+            <button
+              className={`status-size ${resizing ? 'on' : ''}`}
+              onClick={() => setResizing((v) => !v)}
+              title={t('resize.title')}
+            >
+              {doc.width} x {doc.height}
+            </button>
+          </div>
+        )}
+
         <button className="status-btn" onClick={undo} disabled={!canUndo} title={t('status.undo')}>
           <RotateCcw size={15} />
         </button>

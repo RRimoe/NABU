@@ -128,6 +128,22 @@ pub fn undecodable_image(cause: impl ToString) -> NabuError {
     NabuError::new("backend.undecodableImage").detail(cause)
 }
 
+pub fn no_detection_model() -> NabuError {
+    NabuError::new("backend.noDetectionModel")
+}
+
+pub fn router_unavailable() -> NabuError {
+    NabuError::new("backend.routerUnavailable")
+}
+
+pub fn router_no_tool() -> NabuError {
+    NabuError::new("backend.routerNoTool")
+}
+
+pub fn router_invalid(reason: impl ToString) -> NabuError {
+    NabuError::new("backend.routerInvalid").detail(reason)
+}
+
 pub fn unknown(cause: impl ToString) -> NabuError {
     NabuError::new("backend.unknown").detail(cause)
 }

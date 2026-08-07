@@ -112,6 +112,19 @@ interface DocumentState {
   toggleLayerLock: (layerId: string) => void;
   setLayerBlendMode: (layerId: string, blendMode: BlendMode) => void;
   /**
+   * Replaces the document and every layer at once, for a resample.
+   * A single call so the whole resize is one undoable step.
+   */
+  applyResize: (
+    width: number,
+    height: number,
+    layers: Record<string, Partial<LayerNode>>
+  ) => void;
+  /** Moves or scales a layer without touching its pixels. */
+  setLayerTransform: (layerId: string, partial: Partial<LayerNode['transform']>) => void;
+  /** Closes a move or scale gesture with one history step. */
+  commitTransform: (layerId: string) => void;
+  /**
    * Moves one adjustment slider. Dragging must not fill the history with a
    * step per pixel of travel, so this does not record one; `commitAdjustments`
    * closes the gesture with a single undoable step.
@@ -464,6 +477,40 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     },
 
     setLayerBlendMode: (layerId, blendMode) => get().updateLayer(layerId, { blendMode }),
+
+    applyResize: (width, height, layers) =>
+      commit((current) => {
+        const next = { ...current.layers };
+        for (const [id, partial] of Object.entries(layers)) {
+          if (next[id]) next[id] = { ...next[id], ...partial };
+        }
+        return { ...current, width, height, layers: next };
+      }),
+
+    setLayerTransform: (layerId, partial) =>
+      commit(
+        (current) => {
+          const layer = current.layers[layerId];
+          if (!layer) return current;
+          return {
+            ...current,
+            layers: {
+              ...current.layers,
+              [layerId]: { ...layer, transform: { ...layer.transform, ...partial } },
+            },
+          };
+        },
+        // Dragging a handle must not record a step per pixel of travel.
+        { history: false }
+      ),
+
+    commitTransform: (layerId) =>
+      commit((current) => {
+        const layer = current.layers[layerId];
+        return layer
+          ? { ...current, layers: { ...current.layers, [layerId]: { ...layer } } }
+          : current;
+      }),
 
     setAdjustment: (layerId, key, value) =>
       commit(

@@ -48,6 +48,9 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+/** Side of a transform handle, in screen pixels. */
+export const TRANSFORM_HANDLE = 10;
+
 /** Maps the document blend mode to a Canvas 2D globalCompositeOperation. */
 function mapBlendMode(blendMode: BlendMode): GlobalCompositeOperation {
   switch (blendMode) {
@@ -287,6 +290,56 @@ export class RenderEngine {
     return this.adjuster.available;
   }
 
+  /**
+   * Outline and handles of the layer being placed.
+   *
+   * Sized in screen pixels rather than document ones, so a handle stays
+   * grabbable at any zoom instead of shrinking away on a large photo.
+   */
+  private drawTransformBox(doc: NabuDocument, layerId: string, zoom: number): void {
+    const layer = doc.layers[layerId];
+    if (!layer) return;
+
+    const { ctx } = this;
+    const width = (layer.width ?? doc.width) * (layer.transform.scaleX || 1);
+    const height = (layer.height ?? doc.height) * (layer.transform.scaleY || 1);
+    const { x, y } = layer.transform;
+
+    ctx.save();
+
+    ctx.lineWidth = 1.5 / zoom;
+    ctx.strokeStyle = 'rgba(167, 139, 250, 0.9)';
+    ctx.strokeRect(x, y, width, height);
+
+    const handle = TRANSFORM_HANDLE / zoom;
+    const corners: Array<[number, number]> = [
+      [x, y],
+      [x + width, y],
+      [x, y + height],
+      [x + width, y + height],
+    ];
+
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = 'rgba(139, 92, 246, 0.95)';
+    ctx.lineWidth = 1.5 / zoom;
+
+    for (const [cx, cy] of corners) {
+      ctx.beginPath();
+      ctx.rect(cx - handle / 2, cy - handle / 2, handle, handle);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // Centre grip: dragging the body would fight with the lasso, so moving is
+    // deliberately its own target.
+    ctx.beginPath();
+    ctx.arc(x + width / 2, y + height / 2, handle * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
   /** Renders the document, applying pan, zoom and blend modes. */
   public render(
     doc: NabuDocument,
@@ -295,7 +348,9 @@ export class RenderEngine {
     containerHeight: number,
     selection?: Selection | null,
     /** True while the pointer is still down, so the stroke is painted live. */
-    drawingSelection = false
+    drawingSelection = false,
+    /** Layer to show move and scale handles for, when one is being placed. */
+    transformLayerId?: string | null
   ): void {
     const { ctx } = this;
 
@@ -324,6 +379,10 @@ export class RenderEngine {
 
     if (selection && selection.path.length > 0) {
       this.drawSelection(selection, viewport.zoom, drawingSelection);
+    }
+
+    if (transformLayerId) {
+      this.drawTransformBox(doc, transformLayerId, viewport.zoom);
     }
 
     ctx.restore();

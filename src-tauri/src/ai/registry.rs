@@ -18,6 +18,12 @@ pub enum ModelTask {
     BackgroundRemoval,
     Upscale,
     Segmentation,
+    /// Understands a typed request and picks the tool that carries it out.
+    Language,
+    Inpainting,
+    FaceRestoration,
+    /// Finds and names the objects in the image, feeding the scene model.
+    Detection,
 }
 
 /// A single file making up a model (some models need more than one).
@@ -61,6 +67,74 @@ impl ModelSpec {
 /// Static catalogue. Every URL has been verified reachable and the sizes match
 /// what the source declares.
 pub const MODELS: &[ModelSpec] = &[
+    ModelSpec {
+        id: "lama-inpainting",
+        name: "LaMa Inpainting (Rimozione Oggetti)",
+        task: ModelTask::Inpainting,
+        description_key: "model.lama-inpainting.description",
+        license: "Apache-2.0",
+        commercial_use: true,
+        vram_required_mb: 1024,
+        files: &[ModelFile {
+            file_name: "big-lama.onnx",
+            url: "https://huggingface.co/Xenova/lama-onnx/resolve/main/onnx/model.onnx",
+            size_bytes: 209_152_840,
+            sha256: None,
+        }],
+        input_size: Some(512),
+        scale_factor: None,
+    },
+    ModelSpec {
+        id: "codeformer-face-restore",
+        name: "CodeFormer (Ripristino Volti)",
+        task: ModelTask::FaceRestoration,
+        description_key: "model.codeformer-face-restore.description",
+        license: "Apache-2.0",
+        commercial_use: true,
+        vram_required_mb: 1024,
+        files: &[ModelFile {
+            file_name: "codeformer.onnx",
+            url: "https://huggingface.co/Xenova/codeformer-onnx/resolve/main/onnx/model.onnx",
+            size_bytes: 377_108_284,
+            sha256: None,
+        }],
+        input_size: Some(512),
+        scale_factor: None,
+    },
+    ModelSpec {
+        id: "rmbg-2.0",
+        name: "BRIA RMBG-2.0 (Alta Definizione)",
+        task: ModelTask::BackgroundRemoval,
+        description_key: "model.rmbg-2.0.description",
+        license: "BRIA RAIL",
+        commercial_use: false,
+        vram_required_mb: 1536,
+        files: &[ModelFile {
+            file_name: "model.onnx",
+            url: "https://huggingface.co/briaai/RMBG-2.0/resolve/main/onnx/model.onnx",
+            size_bytes: 236_514_210,
+            sha256: None,
+        }],
+        input_size: Some(1024),
+        scale_factor: None,
+    },
+    ModelSpec {
+        id: "realesrgan-x4plus",
+        name: "Real-ESRGAN x4plus (Upscale 4x)",
+        task: ModelTask::Upscale,
+        description_key: "model.realesrgan-x4plus.description",
+        license: "BSD-3-Clause",
+        commercial_use: true,
+        vram_required_mb: 1024,
+        files: &[ModelFile {
+            file_name: "RealESRGAN_x4plus.onnx",
+            url: "https://huggingface.co/Xenova/realesrgan-x4plus/resolve/main/onnx/model.onnx",
+            size_bytes: 67_076_845,
+            sha256: None,
+        }],
+        input_size: None,
+        scale_factor: Some(4),
+    },
     ModelSpec {
         id: "rmbg-1.4-quantized",
         name: "RMBG-1.4 (quantizzato)",
@@ -147,6 +221,40 @@ pub const MODELS: &[ModelSpec] = &[
         scale_factor: Some(2),
     },
     ModelSpec {
+        id: "qwen2.5-1.5b-instruct",
+        name: "Qwen2.5 1.5B Instruct",
+        task: ModelTask::Language,
+        description_key: "model.qwen2.5-1.5b-instruct.description",
+        license: "Apache-2.0",
+        commercial_use: true,
+        vram_required_mb: 2048,
+        files: &[ModelFile {
+            file_name: "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+            url: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+            size_bytes: 1_117_320_736,
+            sha256: Some("6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e"),
+        }],
+        input_size: None,
+        scale_factor: None,
+    },
+    ModelSpec {
+        id: "dfine-nano",
+        name: "D-FINE Nano (Object Detection)",
+        task: ModelTask::Detection,
+        description_key: "model.dfine-nano.description",
+        license: "Apache-2.0",
+        commercial_use: true,
+        vram_required_mb: 256,
+        files: &[ModelFile {
+            file_name: "model.onnx",
+            url: "https://huggingface.co/onnx-community/dfine_n_coco-ONNX/resolve/main/onnx/model.onnx",
+            size_bytes: 15_258_358,
+            sha256: Some("0f684f409618ee8a822410e754a29caa817d1aa16283ce89cad936d0a48e2f35"),
+        }],
+        input_size: Some(640),
+        scale_factor: None,
+    },
+    ModelSpec {
         id: "slimsam-77",
         name: "SlimSAM-77 (Segment Anything)",
         task: ModelTask::Segmentation,
@@ -172,6 +280,7 @@ pub const MODELS: &[ModelSpec] = &[
         scale_factor: None,
     },
 ];
+
 
 pub fn find(model_id: &str) -> Option<&'static ModelSpec> {
     MODELS.iter().find(|m| m.id == model_id)

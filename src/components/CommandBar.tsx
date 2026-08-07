@@ -1,11 +1,10 @@
 // src/components/CommandBar.tsx
-import { useState } from 'react';
-import { ArrowRight } from 'lucide-react';
-import { interpret, type Intent } from '../ai/intents';
+import { useEffect, useState } from 'react';
+import { ArrowRight, Sparkles } from 'lucide-react';
+import { route, routerAvailable } from '../ai/router';
 import { useT } from '../i18n';
 
 interface Props {
-  onRun: (intent: Intent) => void;
   busy: boolean;
   /** With no photo open there is nothing to change. */
   disabled?: boolean;
@@ -15,34 +14,36 @@ interface Props {
 const EXAMPLE_KEYS = [
   'command.example.removeBackground',
   'command.example.enhance',
-  'command.example.changeSky',
-  'command.example.cinematic',
+  'command.example.brighter',
+  'command.example.warmer',
 ];
 
 /**
  * Natural-language command line.
  *
- * Interpretation is keyword-based, not semantic: without a local language model
- * it cannot understand an arbitrary sentence. When a request does not match an
- * available operation it says so, instead of pretending to have understood.
+ * When the language model is installed it understands free phrasing in any
+ * language; otherwise a keyword matcher handles the common requests. Which one
+ * answered is shown, because "it understood me" and "it recognised a phrase I
+ * happened to get right" are very different promises.
  */
-export const CommandBar: React.FC<Props> = ({ onRun, busy, disabled = false }) => {
+export const CommandBar: React.FC<Props> = ({ busy, disabled = false }) => {
   const [text, setText] = useState('');
-  const [rejectedKey, setRejectedKey] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ key: string; params?: Record<string, string | number> } | null>(null);
+  const [smart, setSmart] = useState(false);
   const t = useT();
 
-  const submit = (value: string) => {
+  useEffect(() => {
+    void routerAvailable().then(setSmart);
+  }, []);
+
+  const submit = async (value: string) => {
     const phrase = value.trim();
     if (!phrase) return;
 
-    const intent = interpret(phrase);
-    if (intent.kind === 'unknown') {
-      setRejectedKey(intent.reasonKey);
-      return;
-    }
-    setRejectedKey(null);
-    setText('');
-    onRun(intent);
+    setNotice(null);
+    const outcome = await route(phrase);
+    if (outcome.handled) setText('');
+    setNotice({ key: outcome.messageKey, params: outcome.params });
   };
 
   return (
@@ -51,16 +52,22 @@ export const CommandBar: React.FC<Props> = ({ onRun, busy, disabled = false }) =
         className="command-input-row"
         onSubmit={(e) => {
           e.preventDefault();
-          submit(text);
+          void submit(text);
         }}
       >
+        {smart && (
+          <span className="command-smart" title={t('command.smart.hint')}>
+            <Sparkles size={14} />
+          </span>
+        )}
+
         <input
           className="command-input"
           placeholder={t('command.placeholder')}
           value={text}
           onChange={(e) => {
             setText(e.target.value);
-            setRejectedKey(null);
+            setNotice(null);
           }}
           disabled={busy || disabled}
         />
@@ -73,13 +80,18 @@ export const CommandBar: React.FC<Props> = ({ onRun, busy, disabled = false }) =
         </button>
       </form>
 
-      {rejectedKey ? (
-        <div className="command-rejected">{t(rejectedKey)}</div>
+      {notice ? (
+        <div className="command-rejected">{t(notice.key, notice.params)}</div>
       ) : (
         <div className="command-examples">
           <span className="command-examples-label">{t('command.examples')}</span>
           {EXAMPLE_KEYS.map((key) => (
-            <button key={key} className="command-chip" onClick={() => submit(t(key))}>
+            <button
+              key={key}
+              className="command-chip"
+              onClick={() => void submit(t(key))}
+              disabled={busy || disabled}
+            >
               {t(key)}
             </button>
           ))}
