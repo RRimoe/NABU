@@ -122,7 +122,6 @@
   "backend.unknown": "Unexpected error: {reason}",
   "model.lama-inpainting.description": "LaMa generative model: removes objects and people from the photo, rebuilding the background realistically.",
   "model.codeformer-face-restore.description": "CodeFormer generative model: restores and sharpens the features of blurred or damaged faces.",
-  "model.rmbg-2.0.description": "Next-generation background removal from BRIA AI, at native resolution for perfect edges and hair.",
   "model.realesrgan-x4plus.description": "Real-ESRGAN generative 4x super-resolution, rebuilding crisp detail on photos and graphics.",
   "model.rmbg-1.4-quantized.description": "Background removal from BRIA AI. Quantised build: about a quarter of the original size, slightly weaker on fine edges such as hair.",
   "model.rmbg-1.4.description": "Background removal from BRIA AI at full precision. Reference quality on fine detail.",

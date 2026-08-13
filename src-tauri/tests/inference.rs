@@ -135,7 +135,7 @@ fn upscale_doubles_the_resolution() {
     let mut session = open_session(&path);
 
     let source = test_image(96);
-    let result = tasks::upscale(&mut session, &source, 2, &noop).expect("upscale");
+    let result = tasks::upscale(&mut session, &source, 2, None, &noop).expect("upscale");
 
     assert_eq!(result.dimensions(), (192, 192), "fattore di scala errato");
 
@@ -149,6 +149,42 @@ fn upscale_doubles_the_resolution() {
         "struttura dell'immagine non conservata dopo l'upscaling"
     );
     assert_eq!(center[3], 255, "canale alfa perso");
+}
+
+/// The fixed-input path of the upscaler: Real-ESRGAN x4plus only accepts
+/// 128x128 tensors, so the tiling has to pad partial tiles up to that size and
+/// crop the result back. A 200x120 source exercises both partial dimensions.
+#[test]
+#[ignore = "requires the Real-ESRGAN model (67 MB)"]
+fn fixed_input_upscaling_quadruples_the_resolution() {
+    let path = ensure_model(
+        "realesrgan-x4plus-128.onnx",
+        "https://huggingface.co/bukuroo/RealESRGAN-ONNX/resolve/main/real-esrgan-x4plus-128.onnx",
+    );
+    let mut session = open_session(&path);
+
+    let mut source = RgbaImage::new(200, 120);
+    for (x, y, px) in source.enumerate_pixels_mut() {
+        let dx = x as f32 - 100.0;
+        let dy = y as f32 - 60.0;
+        *px = if dx * dx + dy * dy <= 40.0 * 40.0 {
+            Rgba([235, 90, 60, 255])
+        } else {
+            Rgba([18, 22, 30, 255])
+        };
+    }
+
+    let result = tasks::upscale(&mut session, &source, 4, Some(128), &noop).expect("upscale");
+
+    assert_eq!(result.dimensions(), (800, 480), "wrong scale factor");
+
+    // Structure preserved: bright centre, dark corner. A padding or cropping
+    // mistake in the fixed-size path would shift or repeat tiles.
+    let center = result.get_pixel(400, 240);
+    let corner = result.get_pixel(8, 8);
+    println!("centre={center:?} corner={corner:?}");
+    assert!(center[0] > corner[0] + 40, "image structure lost");
+    assert_eq!(center[3], 255, "alpha lost");
 }
 
 /// Detection smoke test on a synthetic image.

@@ -1,0 +1,65 @@
+Add the vision engine: a scene model the language router reasons over
+
+Vision engine (src-tauri/src/ai/vision)
+- Models no longer answer features directly; they fulfil capability contracts
+  ("a detector receives an image and returns classified boxes") and their
+  outputs converge into one scene model: objects with id, class, box, dominant
+  colour name, position and prominence, plus exposure and sharpness statistics
+  measured straight from the pixels.
+- Each model is described by a declarative JSON manifest — file, preprocessing
+  numbers, and a decoder *family* with its parameters — instead of per-model
+  code. Models within a known family are added by writing a manifest; only a
+  genuinely new output format costs a decoder, paid once per family.
+- Sideloading: any folder in the models directory holding a manifest.json and
+  the ONNX file it names is picked up at run time, the same way translations
+  dropped into languages/ already are. A manifest.json on disk also overrides
+  the embedded one of a curated model, so a fix can ship without a release.
+- First capability is detection, first family is DETR (no anchors, no NMS),
+  first model is D-FINE nano: 15 MB, Apache-2.0, 80 COCO classes.
+
+Lazy vision
+- A fast pass (detection + statistics) runs in the background when a photo is
+  opened, is cached per layer image, and re-runs only when the pixels change.
+  Nothing runs for users who never type a free-form request, and a missing
+  detector just means Nabu cannot see: the editor works exactly as before.
+
+The router sees through the scene, not the image
+- Free-form requests now carry a compact SCENE block ("#2 car — right,
+  color: red") as context, and a new select_object(id) tool turns an object
+  reference into a normal selection. "Select the red car" resolves without the
+  language model ever seeing a pixel, which is what lets a 1.5B model do it;
+  "cut it out" then flows through the existing SAM path unchanged.
+
+Model catalogue: every download URL verified against the source
+- LaMa, CodeFormer and Real-ESRGAN pointed at Hugging Face repositories that
+  do not exist (the server answers 401), so those downloads always failed.
+  They now point at verified public mirrors, with size and SHA-256 pinned.
+- RMBG-2.0 is removed: BRIA gates it behind a login, so an anonymous download
+  can never succeed. RMBG-1.4 and ISNet remain for background removal.
+- CodeFormer's licence was recorded as Apache-2.0; the upstream weights are
+  S-Lab License 1.0, which forbids commercial use. Now flagged accordingly.
+- The only public Real-ESRGAN export with a clean licence fixes its input at
+  128x128, so the tiling pipeline learned to handle fixed-input upscalers:
+  the destination tile shrinks to fit, edges are padded by replication and
+  cropped back. Covered by an end-to-end test on the real model.
+
+Fixes found while writing this
+- SessionCache::invalidate never matched: entries are keyed model/file but were
+  removed by model id alone, so deleting a model left its session alive and
+  pointing at files that no longer existed. Now removed by prefix.
+- Six translation keys (inpainting and face-restoration tasks, four model
+  descriptions) existed only in Italian; the English interface would have
+  shown the raw keys. English is the reference language, so they now exist
+  in both.
+
+Tests
+- The DETR decoder is tested against hand-written tensors: sigmoid and
+  softmax-with-no-object readouts, thresholding, degenerate boxes, and shape
+  mismatches reported as errors rather than panics.
+- Manifest parsing (defaults, unknown capabilities absorbed instead of fatal),
+  letterbox/stretch coordinate mapping, colour naming and exposure statistics
+  are covered as unit tests; colour naming requires an outright majority,
+  which a half-red half-blue region caught.
+- Two ignored tests document the end-to-end behaviour: the detection pipeline
+  on the real 15 MB model, and the router resolving "seleziona l'auto rossa"
+  to the right scene id in several languages.

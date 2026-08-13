@@ -325,7 +325,7 @@ async fn process_ai_task(
 
         let result = match task_type.as_str() {
             "background-removal" => tasks::remove_background(&mut session, &source, &emit)?,
-            "upscale" => tasks::upscale(&mut session, &source, scale, &emit)?,
+            "upscale" => tasks::upscale(&mut session, &source, scale, spec.input_size, &emit)?,
             other => return Err(error::unsupported_task(other)),
         };
 

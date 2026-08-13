@@ -77,9 +77,9 @@ pub const MODELS: &[ModelSpec] = &[
         vram_required_mb: 1024,
         files: &[ModelFile {
             file_name: "big-lama.onnx",
-            url: "https://huggingface.co/Xenova/lama-onnx/resolve/main/onnx/model.onnx",
-            size_bytes: 209_152_840,
-            sha256: None,
+            url: "https://huggingface.co/Carve/LaMa-ONNX/resolve/main/lama_fp32.onnx",
+            size_bytes: 208_044_816,
+            sha256: Some("1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6"),
         }],
         input_size: Some(512),
         scale_factor: None,
@@ -89,35 +89,23 @@ pub const MODELS: &[ModelSpec] = &[
         name: "CodeFormer (Ripristino Volti)",
         task: ModelTask::FaceRestoration,
         description_key: "model.codeformer-face-restore.description",
-        license: "Apache-2.0",
-        commercial_use: true,
+        // The upstream CodeFormer weights are released under the S-Lab
+        // licence, which forbids commercial use, whatever a mirror claims.
+        license: "S-Lab License 1.0",
+        commercial_use: false,
         vram_required_mb: 1024,
         files: &[ModelFile {
             file_name: "codeformer.onnx",
-            url: "https://huggingface.co/Xenova/codeformer-onnx/resolve/main/onnx/model.onnx",
-            size_bytes: 377_108_284,
-            sha256: None,
+            url: "https://huggingface.co/bluefoxcreation/Codeformer-ONNX/resolve/main/codeformer.onnx",
+            size_bytes: 376_821_950,
+            sha256: Some("91e7e881c5001fea4a535e8f96eaeaa672d30c963a678a3e27f0429a6620f57a"),
         }],
         input_size: Some(512),
         scale_factor: None,
     },
-    ModelSpec {
-        id: "rmbg-2.0",
-        name: "BRIA RMBG-2.0 (Alta Definizione)",
-        task: ModelTask::BackgroundRemoval,
-        description_key: "model.rmbg-2.0.description",
-        license: "BRIA RAIL",
-        commercial_use: false,
-        vram_required_mb: 1536,
-        files: &[ModelFile {
-            file_name: "model.onnx",
-            url: "https://huggingface.co/briaai/RMBG-2.0/resolve/main/onnx/model.onnx",
-            size_bytes: 236_514_210,
-            sha256: None,
-        }],
-        input_size: Some(1024),
-        scale_factor: None,
-    },
+    // RMBG-2.0 is deliberately absent: BRIA gates the download behind a
+    // Hugging Face login, so an anonymous fetch answers 401 and the entry
+    // could never work. If it ever becomes public it can come back.
     ModelSpec {
         id: "realesrgan-x4plus",
         name: "Real-ESRGAN x4plus (Upscale 4x)",
@@ -128,11 +116,13 @@ pub const MODELS: &[ModelSpec] = &[
         vram_required_mb: 1024,
         files: &[ModelFile {
             file_name: "RealESRGAN_x4plus.onnx",
-            url: "https://huggingface.co/Xenova/realesrgan-x4plus/resolve/main/onnx/model.onnx",
-            size_bytes: 67_076_845,
-            sha256: None,
+            url: "https://huggingface.co/bukuroo/RealESRGAN-ONNX/resolve/main/real-esrgan-x4plus-128.onnx",
+            size_bytes: 67_160_311,
+            sha256: Some("6a6f4a3d58553d40fdd443d9e5f4b2deb9b52bef1ec2947700fc2167ac876c7d"),
         }],
-        input_size: None,
+        // This export fixes its input at 128x128; the tiling pipeline pads
+        // and crops around that constraint.
+        input_size: Some(128),
         scale_factor: Some(4),
     },
     ModelSpec {

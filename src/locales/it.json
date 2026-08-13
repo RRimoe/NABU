@@ -122,7 +122,6 @@
   "backend.unknown": "Errore imprevisto: {reason}",
   "model.lama-inpainting.description": "Modello generativo LaMa per rimuovere oggetti e persone dalla foto ricostruendo realisticamente lo sfondo.",
   "model.codeformer-face-restore.description": "Modello generativo CodeFormer per ripristinare e definire i tratti dei volti sfocati o rovinati.",
-  "model.rmbg-2.0.description": "Rimozione sfondo BRIA AI di nuova generazione a risoluzione nativa per bordi e capelli perfetti.",
   "model.realesrgan-x4plus.description": "Super-risoluzione generativa 4x Real-ESRGAN per ricostruire dettagli nitidi su foto e grafiche.",
   "model.rmbg-1.4-quantized.description": "Rimozione sfondo di BRIA AI. Versione quantizzata: circa un quarto del peso dell'originale, qualità leggermente inferiore sui bordi sottili come i capelli.",
   "model.rmbg-1.4.description": "Rimozione sfondo di BRIA AI a precisione piena. Qualità di riferimento sui dettagli fini.",

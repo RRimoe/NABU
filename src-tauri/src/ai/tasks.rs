@@ -128,23 +128,32 @@ pub fn upscale(
     session: &mut Session,
     source: &RgbaImage,
     scale: u32,
+    fixed_input: Option<u32>,
     progress: ProgressFn<'_>,
 ) -> NabuResult<RgbaImage> {
     let (width, height) = source.dimensions();
     let mut output = RgbaImage::new(width * scale, height * scale);
 
-    let cols = width.div_ceil(TILE);
-    let rows = height.div_ceil(TILE);
+    // Some exports fix their input resolution instead of taking any size.
+    // The destination tile shrinks so that tile plus context fits it exactly,
+    // and the tensor is padded up to it at the edges of the image.
+    let tile = match fixed_input {
+        Some(f) => f.saturating_sub(2 * OVERLAP).max(WINDOW),
+        None => TILE,
+    };
+
+    let cols = width.div_ceil(tile);
+    let rows = height.div_ceil(tile);
     let total = (cols * rows).max(1);
     let mut done = 0u32;
 
     for row in 0..rows {
         for col in 0..cols {
             // Destination region, without overlap.
-            let x0 = col * TILE;
-            let y0 = row * TILE;
-            let w = TILE.min(width - x0);
-            let h = TILE.min(height - y0);
+            let x0 = col * tile;
+            let y0 = row * tile;
+            let w = tile.min(width - x0);
+            let h = tile.min(height - y0);
 
             // Read region, widened by the context and clamped to the image.
             let cx0 = x0.saturating_sub(OVERLAP);
@@ -152,8 +161,8 @@ pub fn upscale(
             let cx1 = (x0 + w + OVERLAP).min(width);
             let cy1 = (y0 + h + OVERLAP).min(height);
 
-            let tile = image::imageops::crop_imm(source, cx0, cy0, cx1 - cx0, cy1 - cy0).to_image();
-            let sr = upscale_tile(session, &tile, scale)?;
+            let patch = image::imageops::crop_imm(source, cx0, cy0, cx1 - cx0, cy1 - cy0).to_image();
+            let sr = upscale_tile(session, &patch, scale, fixed_input)?;
 
             // In the enlarged tile, skip the context and copy the centre.
             let skip_x = (x0 - cx0) * scale;
@@ -180,13 +189,21 @@ pub fn upscale(
 
 /// Enlarges a single tile. The alpha channel does not go through the model,
 /// which is trained on RGB, and is resampled separately.
-fn upscale_tile(session: &mut Session, tile: &RgbaImage, scale: u32) -> NabuResult<RgbaImage> {
+fn upscale_tile(
+    session: &mut Session,
+    tile: &RgbaImage,
+    scale: u32,
+    fixed_input: Option<u32>,
+) -> NabuResult<RgbaImage> {
     let (w, h) = tile.dimensions();
 
-    // The model needs sides that are multiples of WINDOW: extend by replicating
-    // the border, so the padding introduces no dark edge.
-    let pw = w.next_multiple_of(WINDOW);
-    let ph = h.next_multiple_of(WINDOW);
+    // A fixed-input model wants exactly its resolution; the others need sides
+    // that are multiples of WINDOW. Either way the tile is extended by
+    // replicating the border, so the padding introduces no dark edge.
+    let (pw, ph) = match fixed_input {
+        Some(f) => (f, f),
+        None => (w.next_multiple_of(WINDOW), h.next_multiple_of(WINDOW)),
+    };
 
     let plane = (pw * ph) as usize;
     let mut input = vec![0f32; 3 * plane];
