@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/nabu logo color.png" width="200"/>
+
 # NABU
 
 ### An AI-native image editor.
