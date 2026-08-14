@@ -8,7 +8,8 @@ export type ModelTaskKind =
   | 'language'
   | 'inpainting'
   | 'face-restoration'
-  | 'detection';
+  | 'detection'
+  | 'depth';
 
 export type InstallState = 'not-downloaded' | 'partial' | 'ready';
 
@@ -55,6 +56,7 @@ export const TASK_KEYS: Record<ModelTaskKind, string> = {
   inpainting: 'task.inpainting',
   'face-restoration': 'task.faceRestoration',
   detection: 'task.detection',
+  depth: 'task.depth',
 };
 
 

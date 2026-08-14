@@ -8,13 +8,37 @@ import {
   BlendMode,
   ThemeMode,
   Adjustments,
+  ADJUSTMENT_RANGES,
   NEUTRAL_ADJUSTMENTS,
+  Curves,
+  CurveChannel,
+  CurvePoint,
+  NEUTRAL_CURVES,
+  FocusEffect,
+  LocalAdjustment,
+  areCurvesNeutral,
+  isFocusNeutral,
+  isLocalNeutral,
   Selection,
+  SelectionShape,
   RefineMode,
   BACKGROUND_LAYER_ID,
 } from '../types/document';
 
 const THEME_STORAGE_KEY = 'nabu.theme';
+
+/** Sections the right-hand dock can show, one at a time. */
+export type DockPanel = 'suggestions' | 'adjust' | 'filters';
+
+/** A piece of picture waiting to be pasted, in its own pixels. */
+export interface ClipboardItem {
+  name: string;
+  imageDataUrl: string;
+  width: number;
+  height: number;
+  /** Document it was taken from, so the offer to paste can appear elsewhere. */
+  sourceId: string;
+}
 
 /** Reads the saved theme, falling back to the system preference. */
 const readInitialTheme = (): ThemeMode => {
@@ -71,6 +95,16 @@ interface DocumentState {
 
   fitRequestId: number;
 
+  /**
+   * Size of the canvas area on screen, in CSS pixels.
+   *
+   * Published by the viewport because the navigator needs it: the rectangle it
+   * draws is "how much of the photo currently fits", which cannot be worked out
+   * from the zoom alone.
+   */
+  viewportSize: { width: number; height: number };
+  setViewportSize: (width: number, height: number) => void;
+
   // Documents
   newDocument: (width?: number, height?: number) => void;
   openImageAsDocument: (
@@ -97,13 +131,45 @@ interface DocumentState {
 
   // Selection
   setSelection: (selection: Selection | null) => void;
+  /** Shape the next drag traces: freehand, rectangle or ellipse. */
+  selectionShape: SelectionShape;
+  setSelectionShape: (shape: SelectionShape) => void;
 
   // Refinement
   setRefineMode: (mode: RefineMode | null) => void;
   setRefineSize: (size: number) => void;
 
+  /**
+   * Which section the right-hand dock is showing.
+   *
+   * The rail chooses it; suggestions are what the dock falls back to, because
+   * with no prompt to type they are the app's opening move.
+   */
+  dockPanel: DockPanel;
+  setDockPanel: (panel: DockPanel) => void;
+
+  /**
+   * What was last copied, shared by every open photo.
+   *
+   * It lives outside the sessions on purpose: copying from one picture and
+   * pasting into another is the whole point, and a per-document clipboard
+   * would make that impossible.
+   */
+  clipboard: ClipboardItem | null;
+  setClipboard: (item: ClipboardItem | null) => void;
+
   // Layers
   addLayer: (type?: LayerNode['type'], name?: string, imageDataUrl?: string) => void;
+  /** Copies a layer, pixels included, and selects the copy. */
+  duplicateLayer: (layerId: string) => void;
+  /** Inserts a raster layer directly underneath another. Returns its id. */
+  addLayerBelow: (
+    siblingId: string,
+    name: string,
+    imageDataUrl: string,
+    width: number,
+    height: number
+  ) => string;
   addImageLayer: (name: string, imageDataUrl: string, width: number, height: number) => string;
   removeLayer: (layerId: string) => void;
   setActiveLayer: (layerId: string) => void;
@@ -120,10 +186,12 @@ interface DocumentState {
     height: number,
     layers: Record<string, Partial<LayerNode>>
   ) => void;
-  /** Moves or scales a layer without touching its pixels. */
+  /** Moves, scales or rotates a layer without touching its pixels. */
   setLayerTransform: (layerId: string, partial: Partial<LayerNode['transform']>) => void;
-  /** Closes a move or scale gesture with one history step. */
+  /** Closes a move, scale or rotate gesture with one history step. */
   commitTransform: (layerId: string) => void;
+  /** Puts a layer back where it started, at its original size and angle. */
+  resetTransform: (layerId: string) => void;
   /**
    * Moves one adjustment slider. Dragging must not fill the history with a
    * step per pixel of travel, so this does not record one; `commitAdjustments`
@@ -132,6 +200,49 @@ interface DocumentState {
   setAdjustment: (layerId: string, key: keyof Adjustments, value: number) => void;
   commitAdjustments: (layerId: string) => void;
   resetAdjustments: (layerId: string) => void;
+  /**
+   * Adds a set of deltas to the sliders in one undoable step.
+   * This is how a suggestion is applied: it nudges what is there rather than
+   * replacing it, so a hand correction and a proposal can coexist.
+   */
+  applyAdjustmentDelta: (layerId: string, delta: Partial<Adjustments>) => void;
+  /**
+   * Rewrites one channel of the tone curve. Like the sliders, dragging a
+   * control point records nothing; `commitCurves` closes the gesture.
+   */
+  setCurve: (layerId: string, channel: CurveChannel, points: CurvePoint[]) => void;
+  commitCurves: (layerId: string) => void;
+  /** Straightens one channel, or every channel when none is named. */
+  resetCurves: (layerId: string, channel?: CurveChannel) => void;
+  /**
+   * Rewrites the selective focus. Dragging a band records nothing; the gesture
+   * is closed with `commitFocus`, like the sliders and the curves.
+   */
+  setFocus: (layerId: string, focus: FocusEffect, options?: { history?: boolean }) => void;
+  commitFocus: (layerId: string) => void;
+  clearFocus: (layerId: string) => void;
+  /**
+   * Applies a compound edit in one undoable step.
+   *
+   * A recipe is several operations that only make sense together, so it has to
+   * come back in one piece too: four undos to reverse one button is worse than
+   * not having the button.
+   */
+  applyRecipe: (
+    layerId: string,
+    patch: { delta?: Partial<Adjustments>; focus?: FocusEffect; local?: LocalAdjustment }
+  ) => void;
+  /** Confines a set of corrections to a region. */
+  setLocalAdjustment: (layerId: string, local: LocalAdjustment) => void;
+  /** Strength of the region, 0..1. No history until committed. */
+  setLocalAmount: (layerId: string, amount: number) => void;
+  commitLocal: (layerId: string) => void;
+  clearLocal: (layerId: string) => void;
+  /** Chooses a look, or clears it when the id is null. */
+  setLayerFilter: (layerId: string, filterId: string | null) => void;
+  /** Strength of the chosen look, 0..1. No history until committed. */
+  setFilterAmount: (layerId: string, amount: number) => void;
+  commitFilter: (layerId: string) => void;
   setLayerOpacity: (layerId: string, opacity: number) => void;
   reorderLayers: (sourceIndex: number, destIndex: number) => void;
 
@@ -233,6 +344,67 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       return { document: next, history, historyIndex: history.length - 1 };
     });
 
+  /**
+   * Closes a gesture, recording a step only if something actually changed.
+   *
+   * Every gesture ends by committing: the pointer goes up, the slider is
+   * released. Most of those gestures moved something, but plenty did not — a
+   * click on a handle without a drag, a slider nudged and put back, a tool
+   * selected and abandoned. Recording those leaves the history holding two
+   * identical documents in a row, and the first undo then appears to do
+   * nothing at all, which is exactly what it looks like when undo is broken.
+   *
+   * `signature` decides what "changed" means for this particular gesture, so
+   * the comparison stays cheap: a move compares one transform, not a document
+   * carrying several megabytes of mask.
+   */
+  const commitIfChanged = (
+    signature: (doc: NabuDocument) => string,
+    mutate: (doc: NabuDocument) => NabuDocument
+  ) =>
+    patchSession((session) => {
+      const next = { ...mutate(session.document), updatedAt: new Date().toISOString() };
+      const previous = session.history[session.historyIndex];
+
+      if (previous && signature(previous) === signature(next)) {
+        return { document: next };
+      }
+
+      const history = session.history.slice(0, session.historyIndex + 1);
+      history.push(next);
+      if (history.length > HISTORY_LIMIT) history.shift();
+
+      return { document: next, history, historyIndex: history.length - 1 };
+    });
+
+  /** Signatures for the gestures that can end without having done anything. */
+  const transformSignature = (layerId: string) => (doc: NabuDocument) => {
+    const t = doc.layers[layerId]?.transform;
+    return t ? `${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}` : '';
+  };
+
+  const adjustmentSignature = (layerId: string) => (doc: NabuDocument) => {
+    const layer = doc.layers[layerId];
+    return JSON.stringify([layer?.adjustments ?? null, layer?.filter ?? null]);
+  };
+
+  const curveSignature = (layerId: string) => (doc: NabuDocument) =>
+    JSON.stringify(doc.layers[layerId]?.curves ?? null);
+
+  /** The mask is compared by length: two different masks never share one. */
+  const focusSignature = (layerId: string) => (doc: NabuDocument) => {
+    const focus = doc.layers[layerId]?.focus;
+    if (!focus) return '';
+    const { maskDataUrl, ...rest } = focus;
+    return `${JSON.stringify(rest)}|${maskDataUrl?.length ?? 0}`;
+  };
+
+  const localSignature = (layerId: string) => (doc: NabuDocument) => {
+    const local = doc.layers[layerId]?.local;
+    if (!local) return '';
+    return `${JSON.stringify(local.adjustments)}|${local.amount}|${local.maskDataUrl.length}`;
+  };
+
   const activeSession = () => get().sessions[get().activeId];
 
   return {
@@ -259,6 +431,14 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     aiStatusMessage: '',
 
     fitRequestId: 0,
+
+    viewportSize: { width: 0, height: 0 },
+    setViewportSize: (width, height) =>
+      set((state) =>
+        state.viewportSize.width === width && state.viewportSize.height === height
+          ? state
+          : { viewportSize: { width, height } }
+      ),
 
     // --- Documenti -------------------------------------------------------
 
@@ -366,12 +546,81 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
 
     setSelection: (selection) => patchSession(() => ({ selection })),
 
+    selectionShape: 'free',
+    setSelectionShape: (shape) => set({ selectionShape: shape }),
+
     // --- Rifinitura ------------------------------------------------------
 
     setRefineMode: (mode) => set({ refineMode: mode }),
     setRefineSize: (size) => set({ refineSize: Math.max(4, Math.min(400, size)) }),
 
+    dockPanel: 'suggestions',
+    setDockPanel: (panel) => set({ dockPanel: panel }),
+
+    clipboard: null,
+    setClipboard: (item) => set({ clipboard: item }),
+
     // --- Livelli ---------------------------------------------------------
+
+    addLayerBelow: (siblingId, name, imageDataUrl, width, height) => {
+      const id = `layer-${Date.now()}`;
+      commit((current) => {
+        const index = current.rootLayerIds.indexOf(siblingId);
+        const rootLayerIds = [...current.rootLayerIds];
+        // Later in the array means lower in the stack, so "below" is after.
+        rootLayerIds.splice(index < 0 ? rootLayerIds.length : index + 1, 0, id);
+
+        return {
+          ...current,
+          rootLayerIds,
+          layers: {
+            ...current.layers,
+            [id]: {
+              id,
+              name,
+              type: 'raster',
+              visible: true,
+              locked: false,
+              opacity: 1.0,
+              blendMode: 'normal',
+              transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, skewX: 0, skewY: 0 },
+              imageDataUrl,
+              width,
+              height,
+            },
+          },
+        };
+      });
+      return id;
+    },
+
+    duplicateLayer: (layerId) => {
+      const doc = activeSession()?.document;
+      const source = doc?.layers[layerId];
+      if (!doc || !source) return;
+
+      const id = `layer-${Date.now()}`;
+      commit((current) => ({
+        ...current,
+        // Directly above the original, where a copy belongs.
+        rootLayerIds: current.rootLayerIds.flatMap((existing) =>
+          existing === layerId ? [id, existing] : [existing]
+        ),
+        layers: {
+          ...current.layers,
+          [id]: {
+            ...source,
+            id,
+            name: `${source.name} 2`,
+            // A copy is its own thing: it must not inherit the link a cutout
+            // keeps to the layer it was cut from.
+            sourceLayerId: undefined,
+          },
+        },
+        activeLayerId: id,
+        selectedLayerIds: [id],
+      }));
+    },
 
     addLayer: (type = 'raster', name, imageDataUrl) => {
       const doc = activeSession()?.document;
@@ -505,11 +754,27 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       ),
 
     commitTransform: (layerId) =>
-      commit((current) => {
+      commitIfChanged(transformSignature(layerId), (current) => {
         const layer = current.layers[layerId];
         return layer
           ? { ...current, layers: { ...current.layers, [layerId]: { ...layer } } }
           : current;
+      }),
+
+    resetTransform: (layerId) =>
+      commit((current) => {
+        const layer = current.layers[layerId];
+        if (!layer) return current;
+        return {
+          ...current,
+          layers: {
+            ...current.layers,
+            [layerId]: {
+              ...layer,
+              transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, skewX: 0, skewY: 0 },
+            },
+          },
+        };
       }),
 
     setAdjustment: (layerId, key, value) =>
@@ -527,7 +792,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       ),
 
     commitAdjustments: (layerId) =>
-      commit((current) => {
+      commitIfChanged(adjustmentSignature(layerId), (current) => {
         const layer = current.layers[layerId];
         if (!layer) return current;
         // Re-writing the same values is enough: `commit` records the step.
@@ -544,6 +809,215 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         const next = { ...layer };
         delete next.adjustments;
         return { ...current, layers: { ...current.layers, [layerId]: next } };
+      }),
+
+    applyAdjustmentDelta: (layerId, delta) =>
+      commit((current) => {
+        const layer = current.layers[layerId];
+        if (!layer) return current;
+
+        const adjustments = { ...NEUTRAL_ADJUSTMENTS, ...layer.adjustments };
+        for (const [key, value] of Object.entries(delta) as Array<
+          [keyof Adjustments, number]
+        >) {
+          const [min, max] = ADJUSTMENT_RANGES[key];
+          adjustments[key] = Math.min(max, Math.max(min, adjustments[key] + value));
+        }
+
+        return {
+          ...current,
+          layers: { ...current.layers, [layerId]: { ...layer, adjustments } },
+        };
+      }),
+
+    setCurve: (layerId, channel, points) =>
+      commit(
+        (current) => {
+          const layer = current.layers[layerId];
+          if (!layer) return current;
+          const curves: Curves = { ...NEUTRAL_CURVES, ...layer.curves, [channel]: points };
+          return {
+            ...current,
+            layers: { ...current.layers, [layerId]: { ...layer, curves } },
+          };
+        },
+        { history: false }
+      ),
+
+    commitCurves: (layerId) =>
+      commitIfChanged(curveSignature(layerId), (current) => {
+        const layer = current.layers[layerId];
+        if (!layer) return current;
+        const next = { ...layer };
+        // A curve dragged back to the diagonal is no curve at all: dropping it
+        // keeps the renderer's "is there anything to do" check honest.
+        if (areCurvesNeutral(next.curves)) delete next.curves;
+        return { ...current, layers: { ...current.layers, [layerId]: next } };
+      }),
+
+    resetCurves: (layerId, channel) =>
+      commit((current) => {
+        const layer = current.layers[layerId];
+        if (!layer) return current;
+        const next = { ...layer };
+
+        if (!channel) {
+          delete next.curves;
+        } else {
+          const curves: Curves = { ...NEUTRAL_CURVES, ...layer.curves, [channel]: NEUTRAL_CURVES[channel] };
+          if (areCurvesNeutral(curves)) delete next.curves;
+          else next.curves = curves;
+        }
+
+        return { ...current, layers: { ...current.layers, [layerId]: next } };
+      }),
+
+    setFocus: (layerId, focus, options = {}) =>
+      commit(
+        (current) => {
+          const layer = current.layers[layerId];
+          if (!layer) return current;
+          return {
+            ...current,
+            layers: { ...current.layers, [layerId]: { ...layer, focus } },
+          };
+        },
+        // Dragging the band across the frame must not record a step per pixel.
+        { history: options.history ?? false }
+      ),
+
+    commitFocus: (layerId) =>
+      commitIfChanged(focusSignature(layerId), (current) => {
+        const layer = current.layers[layerId];
+        if (!layer) return current;
+        const next = { ...layer };
+        // Switched off means gone: the renderer's "is there anything to do"
+        // check should not have to look past a disabled effect.
+        if (isFocusNeutral(next.focus)) delete next.focus;
+        return { ...current, layers: { ...current.layers, [layerId]: next } };
+      }),
+
+    applyRecipe: (layerId, patch) =>
+      commit((current) => {
+        const layer = current.layers[layerId];
+        if (!layer) return current;
+
+        const next = { ...layer };
+
+        if (patch.delta) {
+          const adjustments = { ...NEUTRAL_ADJUSTMENTS, ...layer.adjustments };
+          for (const [key, value] of Object.entries(patch.delta) as Array<
+            [keyof Adjustments, number]
+          >) {
+            const [min, max] = ADJUSTMENT_RANGES[key];
+            adjustments[key] = Math.min(max, Math.max(min, adjustments[key] + value));
+          }
+          next.adjustments = adjustments;
+        }
+
+        if (patch.focus) next.focus = patch.focus;
+        if (patch.local) next.local = patch.local;
+
+        return { ...current, layers: { ...current.layers, [layerId]: next } };
+      }),
+
+    setLocalAdjustment: (layerId, local) =>
+      commit((current) => {
+        const layer = current.layers[layerId];
+        if (!layer) return current;
+        return {
+          ...current,
+          layers: { ...current.layers, [layerId]: { ...layer, local } },
+        };
+      }),
+
+    setLocalAmount: (layerId, amount) =>
+      commit(
+        (current) => {
+          const layer = current.layers[layerId];
+          if (!layer?.local) return current;
+          return {
+            ...current,
+            layers: {
+              ...current.layers,
+              [layerId]: {
+                ...layer,
+                local: { ...layer.local, amount: Math.max(0, Math.min(1, amount)) },
+              },
+            },
+          };
+        },
+        { history: false }
+      ),
+
+    commitLocal: (layerId) =>
+      commitIfChanged(localSignature(layerId), (current) => {
+        const layer = current.layers[layerId];
+        if (!layer) return current;
+        const next = { ...layer };
+        if (isLocalNeutral(next.local)) delete next.local;
+        return { ...current, layers: { ...current.layers, [layerId]: next } };
+      }),
+
+    clearLocal: (layerId) =>
+      commit((current) => {
+        const layer = current.layers[layerId];
+        if (!layer) return current;
+        const next = { ...layer };
+        delete next.local;
+        return { ...current, layers: { ...current.layers, [layerId]: next } };
+      }),
+
+    clearFocus: (layerId) =>
+      commit((current) => {
+        const layer = current.layers[layerId];
+        if (!layer) return current;
+        const next = { ...layer };
+        delete next.focus;
+        return { ...current, layers: { ...current.layers, [layerId]: next } };
+      }),
+
+    setLayerFilter: (layerId, filterId) =>
+      commit((current) => {
+        const layer = current.layers[layerId];
+        if (!layer) return current;
+        const next = { ...layer };
+        if (!filterId) {
+          delete next.filter;
+        } else {
+          // Re-picking the same look keeps its strength; a new one starts full,
+          // because that is what tapping a look is asking for.
+          const amount = layer.filter?.id === filterId ? layer.filter.amount : 1;
+          next.filter = { id: filterId, amount };
+        }
+        return { ...current, layers: { ...current.layers, [layerId]: next } };
+      }),
+
+    setFilterAmount: (layerId, amount) =>
+      commit(
+        (current) => {
+          const layer = current.layers[layerId];
+          if (!layer?.filter) return current;
+          return {
+            ...current,
+            layers: {
+              ...current.layers,
+              [layerId]: {
+                ...layer,
+                filter: { ...layer.filter, amount: Math.max(0, Math.min(1, amount)) },
+              },
+            },
+          };
+        },
+        { history: false }
+      ),
+
+    commitFilter: (layerId) =>
+      commitIfChanged(adjustmentSignature(layerId), (current) => {
+        const layer = current.layers[layerId];
+        return layer
+          ? { ...current, layers: { ...current.layers, [layerId]: { ...layer } } }
+          : current;
       }),
     setLayerOpacity: (layerId, opacity) => get().updateLayer(layerId, { opacity }),
 

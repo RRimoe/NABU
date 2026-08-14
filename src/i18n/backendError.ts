@@ -24,7 +24,13 @@ function isBackendError(value: unknown): value is BackendError {
 /** Human-readable message for anything thrown by an `invoke` call. */
 export function describeError(error: unknown): string {
   if (isBackendError(error)) {
-    return t(error.key, error.params);
+    // Several messages interpolate {reason}. The backend carries the cause in
+    // `detail` (untranslated by design), so it doubles as the reason unless
+    // the key set one explicitly — without this, the text shows a literal
+    // "{reason}" and the actual cause is lost.
+    const params = { reason: error.detail ?? '', ...error.params };
+    if (!params.reason) params.reason = error.detail ?? '?';
+    return t(error.key, params);
   }
   // Not one of ours: a thrown Error, or a string from the Tauri bridge.
   if (error instanceof Error) return error.message;

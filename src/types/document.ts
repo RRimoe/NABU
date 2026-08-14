@@ -71,6 +71,14 @@ export interface LayerNode {
   sourceLayerId?: string;
   /** Non-destructive adjustments; absent means none have been applied. */
   adjustments?: Adjustments;
+  /** Non-destructive tone curves; absent means the identity curve. */
+  curves?: Curves;
+  /** Where the picture stays sharp; absent means all of it. */
+  focus?: FocusEffect;
+  /** Corrections confined to one region; absent means none. */
+  local?: LocalAdjustment;
+  /** Look chosen from the filter panel, layered on top of the sliders. */
+  filter?: LayerFilter;
 }
 
 export interface NabuDocument {
@@ -131,6 +139,10 @@ export interface Adjustments {
   // Effects
   vignette: number;
   grain: number;
+  /** Highlights bleeding into their surroundings, the way film glows. */
+  bloom: number;
+  /** Colour fringing towards the corners, the way a cheap lens does it. */
+  aberration: number;
 }
 
 export const NEUTRAL_ADJUSTMENTS: Adjustments = {
@@ -150,6 +162,36 @@ export const NEUTRAL_ADJUSTMENTS: Adjustments = {
   blur: 0,
   vignette: 0,
   grain: 0,
+  bloom: 0,
+  aberration: 0,
+};
+
+/**
+ * Range of every slider, in one place.
+ *
+ * The panel reads it to build its controls and the filter engine reads it to
+ * clamp a preset once it is added on top of what the user already set, so a
+ * range can never be defined in two places that disagree.
+ */
+export const ADJUSTMENT_RANGES: Record<keyof Adjustments, [number, number]> = {
+  exposure: [-100, 100],
+  contrast: [-100, 100],
+  highlights: [-100, 100],
+  shadows: [-100, 100],
+  whites: [-100, 100],
+  blacks: [-100, 100],
+  temperature: [-100, 100],
+  tint: [-100, 100],
+  vibrance: [-100, 100],
+  saturation: [-100, 100],
+  hue: [-180, 180],
+  clarity: [-100, 100],
+  sharpness: [0, 100],
+  blur: [0, 20],
+  vignette: [-100, 100],
+  grain: [0, 100],
+  bloom: [0, 100],
+  aberration: [0, 100],
 };
 
 /** True when nothing would change, so the processing pass can be skipped. */
@@ -160,14 +202,178 @@ export function isNeutral(adjustments?: Adjustments): boolean {
   );
 }
 
+// --- Tone curves -------------------------------------------------------------
+
+/** Control point of a tone curve. Both axes run 0..1, input against output. */
+export interface CurvePoint {
+  x: number;
+  y: number;
+}
+
+/**
+ * `rgb` is the master curve applied to all three channels; the others correct
+ * one channel each. They compose as master(channel(value)).
+ */
+export type CurveChannel = 'rgb' | 'r' | 'g' | 'b';
+
+export const CURVE_CHANNELS: CurveChannel[] = ['rgb', 'r', 'g', 'b'];
+
+/** The identity curve: output equals input, so the pixels are left alone. */
+export const NEUTRAL_CURVE: CurvePoint[] = [
+  { x: 0, y: 0 },
+  { x: 1, y: 1 },
+];
+
+export type Curves = Record<CurveChannel, CurvePoint[]>;
+
+export const NEUTRAL_CURVES: Curves = {
+  rgb: NEUTRAL_CURVE,
+  r: NEUTRAL_CURVE,
+  g: NEUTRAL_CURVE,
+  b: NEUTRAL_CURVE,
+};
+
+/** True when a single channel is still the diagonal. */
+export function isCurveNeutral(points?: CurvePoint[]): boolean {
+  if (!points || points.length !== 2) return !points;
+  const [first, last] = points;
+  return first.x === 0 && first.y === 0 && last.x === 1 && last.y === 1;
+}
+
+/** True when no channel bends, so the curve pass can be skipped entirely. */
+export function areCurvesNeutral(curves?: Curves): boolean {
+  if (!curves) return true;
+  return CURVE_CHANNELS.every((channel) => isCurveNeutral(curves[channel]));
+}
+
+// --- Selective focus ---------------------------------------------------------
+
+/**
+ * Where the picture stays sharp.
+ *
+ * `mask` follows the shape of a real object — a cutout from the segmenter or the
+ * outline the user drew — which is what "blur the background behind him" means.
+ * `linear` and `radial` are geometric instead, and cost nothing to compute: a
+ * band is the tilt-shift that turns a street into a model railway, an ellipse is
+ * the soft-focus every portrait lens has been sold on since 1900.
+ */
+export type FocusMode = 'off' | 'mask' | 'linear' | 'radial' | 'depth';
+
+export interface FocusEffect {
+  mode: FocusMode;
+  /** Blur outside the sharp zone, in pixels at the layer's own resolution. */
+  amount: number;
+  /** Width of the transition, as a fraction of the frame. */
+  feather: number;
+  /** Swaps the two sides: blur the subject and keep the background sharp. */
+  invert: boolean;
+  /** Centre of the sharp zone, 0..1 across and down the layer. */
+  centreX: number;
+  centreY: number;
+  /** Half-height of the band, or radius of the ellipse, as a fraction. */
+  size: number;
+  /** Ellipse width relative to its height. Radial only. */
+  aspect: number;
+  /** Angle of the band, in degrees. Linear only. */
+  angle: number;
+  /**
+   * The distance that stays sharp, 0 = farthest, 1 = nearest. Depth mode only.
+   * This is the focus ring of a real lens: everything nearer or farther than
+   * the chosen plane falls off, instead of one side of a boundary.
+   */
+  plane: number;
+  /**
+   * Greyscale PNG. In mask mode it is white where the picture stays sharp; in
+   * depth mode it is the depth map itself, white near and black far.
+   *
+   * Stored on the layer rather than recomputed: a segmenter or a depth model
+   * costs seconds, and the result has to survive an undo.
+   */
+  maskDataUrl?: string;
+}
+
+export const NEUTRAL_FOCUS: FocusEffect = {
+  mode: 'off',
+  amount: 24,
+  feather: 0.12,
+  invert: false,
+  centreX: 0.5,
+  centreY: 0.5,
+  size: 0.18,
+  aspect: 1.4,
+  angle: 0,
+  // Biased towards the near end: a photo you would want blurred behind
+  // something almost always has that something in the foreground.
+  plane: 0.75,
+};
+
+/** True when the focus effect would change nothing. */
+export function isFocusNeutral(focus?: FocusEffect): boolean {
+  if (!focus) return true;
+  if (focus.mode === 'off' || focus.amount <= 0) return true;
+  // Both of these read a picture rather than a shape, so without one there is
+  // nothing to be out of focus against.
+  return (focus.mode === 'mask' || focus.mode === 'depth') && !focus.maskDataUrl;
+}
+
+// --- Local adjustments -------------------------------------------------------
+
+/**
+ * Corrections that apply to one part of the picture only.
+ *
+ * This is what separates "make the photo brighter" from "bring the subject
+ * forward". The mask is the same kind of greyscale picture the focus effect
+ * uses — a cutout from the segmenter, a shape the user drew, a depth map — and
+ * the values are deltas on top of whatever the global sliders already say.
+ */
+export interface LocalAdjustment {
+  /** Greyscale PNG: white where the correction applies at full strength. */
+  maskDataUrl: string;
+  adjustments: Partial<Adjustments>;
+  /** Scales the whole set, so one slider can dial the region back. */
+  amount: number;
+}
+
+/** True when the region would change nothing. */
+export function isLocalNeutral(local?: LocalAdjustment): boolean {
+  if (!local || !local.maskDataUrl || local.amount <= 0) return true;
+  return Object.values(local.adjustments).every((value) => !value);
+}
+
+// --- Filters -----------------------------------------------------------------
+
+/**
+ * A look picked from the filter panel.
+ *
+ * Only the name and the strength are stored: the preset itself lives in code,
+ * so a photo saved today still resolves to the current definition and a filter
+ * can be reworked without rewriting documents.
+ */
+export interface LayerFilter {
+  id: string;
+  /** 0..1, so a look can be dialled back instead of only on or off. */
+  amount: number;
+}
+
 export interface Point2D {
   x: number;
   y: number;
 }
 
-/** Lasso drawn by the user, in document coordinates. Implicitly closed. */
+/**
+ * Shape the drag traces.
+ *
+ * Everything ends up as a polygon regardless: a rectangle is four points and an
+ * ellipse is a fine polygon, so the rest of the application — rendering, the
+ * bounding box handed to the segmenter — never has to know which was used.
+ */
+export type SelectionShape = 'free' | 'rect' | 'ellipse';
+
+/** Region drawn by the user, in document coordinates. Implicitly closed. */
 export interface Selection {
   path: Point2D[];
+  /** How it was drawn; absent means freehand. */
+  shape?: SelectionShape;
 }
 
 /** Mode of the transparency refinement brush. */
@@ -176,6 +382,7 @@ export type RefineMode = 'restore' | 'erase';
 export type ToolType =
   | 'select'
   | 'pan'
+  | 'transform'
   | 'brush'
   | 'eraser'
   | 'ai-lasso'

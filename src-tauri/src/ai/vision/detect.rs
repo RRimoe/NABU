@@ -44,7 +44,13 @@ pub fn run(
         activation,
         box_format,
         labels,
-    } = &manifest.output;
+    } = &manifest.output
+    else {
+        return Err(error::inference_failed(format!(
+            "manifest {} is not a detector family",
+            manifest.id
+        )));
+    };
 
     let mut logits: Option<(Vec<usize>, Vec<f32>)> = None;
     let mut boxes: Option<(Vec<usize>, Vec<f32>)> = None;

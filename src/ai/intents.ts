@@ -22,13 +22,19 @@ const GENERATIVE_PATTERNS = [
   /\bcinematic/i,
   /\bgenerat/i,
   /\breplace\b/i,
-  /\bremove\s+(the\s+)?(people|person|object)/i,
   /\bcambi\w*\s+(il\s+)?cielo/i,
   /\bcinematograf/i,
   /\bsostituisc/i,
   /\bgener\w*/i,
-  /\brimuov\w*\s+(le\s+)?persone/i,
-  /\brimuov\w*\s+(l')?oggett/i,
+  // Removing *something from* the photo needs inpainting. These verbs are
+  // deliberately broad: this list is checked last, after every request the
+  // editor can actually satisfy (background, selection, noise, adjustments)
+  // has already been matched, so whatever reaches them is a removal request.
+  // Recognising it and saying "not yet" beats "I did not understand".
+  /\b(elimin|rimuov|togli|leva|cancell)\w*\s+/i,
+  /\b(remove|delete|erase)\b/i,
+  /\bget\s+rid\s+of\b/i,
+  /(quita\w*|borra\w*|enl[eè]v\w*|supprim\w*|entfern\w*|l[öo]sch\w*)/i,
 ];
 
 interface AdjustmentMapping {

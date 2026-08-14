@@ -119,6 +119,7 @@ async fn segment_object(
     y0: f32,
     x1: f32,
     y1: f32,
+    outline: Option<Vec<[f32; 2]>>,
 ) -> Result<String, NabuError> {
     let spec = registry::find(&model_id).ok_or_else(|| error::unknown_model(&model_id))?;
     if spec.files.len() < 2 {
@@ -148,11 +149,12 @@ async fn segment_object(
         let mut encoder = encoder.lock().map_err(|_| error::session_unavailable())?;
         let mut decoder = decoder.lock().map_err(|_| error::session_unavailable())?;
 
-        let result = tasks::segment_object(
+        let result = segment_within(
             &mut encoder,
             &mut decoder,
             &source,
             tasks::BoxPrompt { x0, y0, x1, y1 },
+            outline.as_deref().unwrap_or(&[]),
             &emit,
         )?;
 
@@ -190,7 +192,7 @@ async fn analyze_scene(
         emit(5, "load");
 
         let key = format!("{}/{}", detector.model_id, detector.manifest.file);
-        let session = cache.get_or_load_at(&key, &detector.path)?;
+        let session = cache.get_or_load_at(&key, &detector.path, detector.manifest.cpu_only)?;
         let mut session = session.lock().map_err(|_| error::session_unavailable())?;
 
         let detections = vision::detect::run(&mut session, &detector.manifest, &source, &emit)?;
@@ -202,8 +204,226 @@ async fn analyze_scene(
     .map_err(error::unknown)?
 }
 
-/// Id of the language model the router uses.
-const ROUTER_MODEL: &str = "qwen2.5-1.5b-instruct";
+/// Segments an object, held to the shape the user drew.
+///
+/// The drawing does two jobs and the segmenter alone honours neither: it says
+/// *where to point* — points taken from the places furthest inside it, because
+/// the centre of a bounding box is not inside anything that is not roughly
+/// square — and it says *how far the answer may reach*, which is what stops a
+/// misread from erasing something on the other side of the photograph.
+///
+/// With no drawing, both fall back to the bounding box, which is all a
+/// suggestion resolved from the scene model ever has.
+fn segment_within(
+    encoder: &mut ort::session::Session,
+    decoder: &mut ort::session::Session,
+    source: &image::RgbaImage,
+    prompt: tasks::BoxPrompt,
+    outline: &[[f32; 2]],
+    progress: tasks::ProgressFn<'_>,
+) -> Result<image::RgbaImage, NabuError> {
+    let (width, height) = source.dimensions();
+    let region = vision::region::Region::from_polygon(outline, width, height);
+    let points = region
+        .as_ref()
+        .map(|region| region.prompt_points(5))
+        .unwrap_or_default();
+
+    let mut result = tasks::segment_object(encoder, decoder, source, prompt, &points, progress)?;
+
+    let Some(region) = region else { return Ok(result) };
+
+    // The segmenter answers with the source carrying its mask as alpha, so the
+    // judgement is made on that alpha and written back to it.
+    let mut mask = image::GrayImage::new(width, height);
+    for (x, y, px) in result.enumerate_pixels() {
+        mask.put_pixel(x, y, image::Luma([px[3]]));
+    }
+
+    vision::region::constrain(&mut mask, &region);
+
+    for (x, y, px) in result.enumerate_pixels_mut() {
+        px[3] = mask.get_pixel(x, y)[0];
+    }
+
+    Ok(result)
+}
+
+/// How far away everything in the photo is, relative to the rest of it.
+///
+/// Returned as a greyscale PNG rather than a numeric array: it is consumed as
+/// a texture by the renderer, a PNG is an order of magnitude smaller across the
+/// bridge than the equivalent JSON, and every effect that reads it wants a
+/// picture anyway.
+///
+/// Depth is optional throughout. With no model installed this reports it, and
+/// the interface falls back to the geometric shapes that need no model at all.
+#[tauri::command]
+async fn analyze_depth(
+    app: AppHandle,
+    cache: State<'_, Arc<SessionCache>>,
+    image_data_url: String,
+) -> Result<String, NabuError> {
+    let cache = cache.inner().clone();
+    let handle = app.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let source = imaging::decode_data_url(&image_data_url)?;
+        let model =
+            vision::catalog::best_depth(&handle).ok_or_else(|| error::no_model_selected("depth"))?;
+
+        let emit = |percent: u32, stage: &str| {
+            let _ = handle.emit(
+                "ai-task-progress",
+                AiProgress { percent, stage: stage.to_string() },
+            );
+        };
+        emit(5, "load");
+
+        let key = format!("{}/{}", model.model_id, model.manifest.file);
+        let session = cache.get_or_load_at(&key, &model.path, model.manifest.cpu_only)?;
+        let mut session = session.lock().map_err(|_| error::session_unavailable())?;
+
+        let map = vision::depth::run(&mut session, &model.manifest, &source, &emit)?;
+        emit(95, "compose");
+
+        // Greyscale out, RGBA in: the shared encoder speaks one format, and a
+        // depth map with equal channels is exactly what the shader samples.
+        let mut rgba = image::RgbaImage::new(map.image.width(), map.image.height());
+        for (x, y, px) in map.image.enumerate_pixels() {
+            rgba.put_pixel(x, y, image::Rgba([px[0], px[0], px[0], 255]));
+        }
+
+        let encoded = imaging::encode_png_data_url(&rgba)?;
+        emit(100, "done");
+        Ok(encoded)
+    })
+    .await
+    .map_err(error::unknown)?
+}
+
+/// Language models the router can use, in order of preference.
+///
+/// Measured on the routing test suite (tests/router.rs), both models answer
+/// in the same ~10-14s per phrase on CPU — the cost is dominated by prompt
+/// processing, not model size — but the 1.5B routes 5/6 test groups correctly
+/// against 3/6 for the 0.5B, which misreads French and vague phrasing. Equal
+/// speed and better answers put the 1.5B first; the 0.5B stays as a smaller
+/// download for machines where a gigabyte of RAM matters.
+const ROUTER_MODELS: &[&str] = &["qwen2.5-1.5b-instruct", "qwen2.5-0.5b-instruct"];
+
+/// The first router model in the preference order that is ready on disk.
+fn installed_router_model(app: &AppHandle) -> Option<&'static registry::ModelSpec> {
+    ROUTER_MODELS.iter().find_map(|id| {
+        registry::find(id)
+            .filter(|spec| download::status_of(app, spec).state == download::InstallState::Ready)
+    })
+}
+
+/// Removes the object inside a rectangle and rebuilds the background.
+///
+/// The whole point of the vision engine in one command: the box comes from
+/// the scene model (via `select_object`/`remove_object` routing), a segmenter
+/// turns it into a pixel mask, an inpainter fills the hole. Which concrete
+/// models run is the catalogue's business — anything fulfilling the
+/// `segmenter` and `inpainter` contracts will do.
+#[tauri::command]
+async fn remove_object(
+    app: AppHandle,
+    cache: State<'_, Arc<SessionCache>>,
+    image_data_url: String,
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
+    outline: Option<Vec<[f32; 2]>>,
+) -> Result<String, NabuError> {
+    let cache = cache.inner().clone();
+    let handle = app.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let source = imaging::decode_data_url(&image_data_url)?;
+
+        let emit = |percent: u32, stage: &str| {
+            let _ = handle.emit(
+                "ai-task-progress",
+                AiProgress { percent, stage: stage.to_string() },
+            );
+        };
+        emit(5, "load");
+
+        // Stage 1: the segmenter turns the box into a mask.
+        let segmenter = vision::catalog::best_segmenter(&handle)?;
+        let vision::manifest::OutputSpec::Sam { decoder } = &segmenter.manifest.output else {
+            return Err(error::inference_failed(format!(
+                "manifest {} is not a segmenter family",
+                segmenter.manifest.id
+            )));
+        };
+
+        let encoder_key = format!("{}/{}", segmenter.model_id, segmenter.manifest.file);
+        let decoder_key = format!("{}/{}", segmenter.model_id, decoder);
+        let cpu_only = segmenter.manifest.cpu_only;
+        let encoder = cache.get_or_load_at(&encoder_key, &segmenter.path, cpu_only)?;
+        let decoder = cache.get_or_load_at(&decoder_key, &segmenter.dir.join(decoder), cpu_only)?;
+
+        let masked = {
+            let mut encoder = encoder.lock().map_err(|_| error::session_unavailable())?;
+            let mut decoder = decoder.lock().map_err(|_| error::session_unavailable())?;
+            segment_within(
+                &mut encoder,
+                &mut decoder,
+                &source,
+                tasks::BoxPrompt { x0, y0, x1, y1 },
+                outline.as_deref().unwrap_or(&[]),
+                &emit,
+            )?
+        };
+
+        // The segmenter contract returns the source with the mask as alpha.
+        let mut mask = image::GrayImage::new(source.width(), source.height());
+        for (x, y, px) in masked.enumerate_pixels() {
+            mask.put_pixel(x, y, image::Luma([px[3]]));
+        }
+
+        // Stage 2: the inpainter rebuilds what the mask covers.
+        let inpainter = vision::catalog::best_inpainter(&handle)?;
+        let key = format!("{}/{}", inpainter.model_id, inpainter.manifest.file);
+        let session = cache.get_or_load_at(&key, &inpainter.path, inpainter.manifest.cpu_only)?;
+        let mut session = session.lock().map_err(|_| error::session_unavailable())?;
+
+        let result =
+            vision::inpaint::remove_region(&mut session, &inpainter.manifest, &source, &mask, &emit)?;
+
+        imaging::encode_png_data_url(&result)
+    })
+    .await
+    .map_err(error::unknown)?
+}
+
+/// Starts loading the language router in the background.
+///
+/// Fire-and-forget: the interface calls it once at startup when the model is
+/// installed, so the first typed request answers in seconds instead of paying
+/// for a gigabyte of weights on the spot. Doing nothing when the model is
+/// absent, or the build has no language engine, is the correct behaviour.
+#[cfg(feature = "llm")]
+#[tauri::command]
+fn warm_router(app: AppHandle) {
+    let Some(spec) = installed_router_model(&app) else { return };
+    let Ok(dir) = download::model_dir(&app, spec.id) else { return };
+    let file = spec.files[0].file_name;
+
+    tauri::async_runtime::spawn(async move {
+        if let Err(err) = ai::router::preload(&dir.to_string_lossy(), file).await {
+            eprintln!("[nabu] router warm-up failed: {err}");
+        }
+    });
+}
+
+#[cfg(not(feature = "llm"))]
+#[tauri::command]
+fn warm_router(_app: AppHandle) {}
 
 /// Whether a typed request can be understood rather than keyword-matched.
 ///
@@ -212,12 +432,7 @@ const ROUTER_MODEL: &str = "qwen2.5-1.5b-instruct";
 /// requests or to stay with the phrases it can pattern-match.
 #[tauri::command]
 fn router_available(app: AppHandle) -> bool {
-    if !cfg!(feature = "llm") {
-        return false;
-    }
-    registry::find(ROUTER_MODEL)
-        .map(|spec| download::status_of(&app, spec).state == download::InstallState::Ready)
-        .unwrap_or(false)
+    cfg!(feature = "llm") && installed_router_model(&app).is_some()
 }
 
 /// Turns a typed sentence into a call to one of Nabu's tools.
@@ -233,12 +448,10 @@ async fn interpret_command(
     has_selection: bool,
     scene: Option<String>,
 ) -> Result<ToolCall, NabuError> {
-    let spec = registry::find(ROUTER_MODEL).ok_or_else(|| error::unknown_model(ROUTER_MODEL))?;
-    if download::status_of(&app, spec).state != download::InstallState::Ready {
-        return Err(error::model_not_downloaded(spec.name));
-    }
+    let spec = installed_router_model(&app)
+        .ok_or_else(|| error::model_not_downloaded("Qwen2.5 Instruct"))?;
 
-    let dir = download::model_dir(&app, ROUTER_MODEL)?;
+    let dir = download::model_dir(&app, spec.id)?;
     let file = spec.files[0].file_name;
 
     let mut context = String::from(if has_selection {
@@ -269,6 +482,41 @@ async fn interpret_command(
     Err(error::router_unavailable())
 }
 
+/// Reads the scene and proposes one thing worth doing, in the user's language.
+///
+/// The second tier of the suggestions panel. The first tier is arithmetic and
+/// is already on screen by the time this is called; this arrives when it
+/// arrives and slots in above it, so its cost on CPU is never something anyone
+/// waits for. Returns the model's JSON verbatim for the interface to validate —
+/// the recipe name and the object id are checked against what exists, because
+/// a small model asked for a word from a list will occasionally invent one.
+#[cfg(feature = "llm")]
+#[tauri::command]
+async fn advise_scene(
+    app: AppHandle,
+    scene: String,
+    language: String,
+) -> Result<String, NabuError> {
+    let spec = installed_router_model(&app)
+        .ok_or_else(|| error::model_not_downloaded("Qwen2.5 Instruct"))?;
+
+    let dir = download::model_dir(&app, spec.id)?;
+    let file = spec.files[0].file_name;
+
+    ai::router::advise(&dir.to_string_lossy(), file, &scene, &language).await
+}
+
+/// Without the language engine there is no second tier; the first still works.
+#[cfg(not(feature = "llm"))]
+#[tauri::command]
+async fn advise_scene(
+    _app: AppHandle,
+    _scene: String,
+    _language: String,
+) -> Result<String, NabuError> {
+    Err(error::router_unavailable())
+}
+
 /// Accelerator detected on this machine, shown in the status bar.
 #[tauri::command]
 fn accelerator_label() -> String {
@@ -280,7 +528,6 @@ fn accelerator_label() -> String {
 #[serde(rename_all = "camelCase")]
 struct AiProgress {
     percent: u32,
-    /// Stage identifier, translated by the frontend.
     stage: String,
 }
 
@@ -354,8 +601,12 @@ pub fn run() {
             list_languages,
             accelerator_label,
             router_available,
+            warm_router,
             interpret_command,
             analyze_scene,
+            analyze_depth,
+            advise_scene,
+            remove_object,
             segment_object,
             process_ai_task
         ])

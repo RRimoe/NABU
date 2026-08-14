@@ -25,14 +25,22 @@ use super::manifest::{Capability, ModelManifest};
 
 /// Manifests of the curated models, compiled in so a fresh download works
 /// offline and cannot lose its description.
-const BUILT_IN: &[&str] = &[include_str!("../../../manifests/dfine-nano.json")];
+const BUILT_IN: &[&str] = &[
+    include_str!("../../../manifests/dfine-nano.json"),
+    include_str!("../../../manifests/slimsam-77.json"),
+    include_str!("../../../manifests/lama-inpainting.json"),
+    include_str!("../../../manifests/depth-anything-v2-small.json"),
+    include_str!("../../../manifests/depth-anything-v2-small-quantized.json"),
+];
 
-/// A model ready to run: its manifest plus the file it lives in.
+/// A model ready to run: its manifest plus where it lives.
 #[derive(Debug, Clone)]
 pub struct ResolvedModel {
     pub model_id: String,
-    /// Full path of the ONNX file.
+    /// Full path of the primary ONNX file.
     pub path: PathBuf,
+    /// Folder holding the model, for families with more than one file.
+    pub dir: PathBuf,
     pub manifest: ModelManifest,
 }
 
@@ -82,6 +90,7 @@ pub fn models_for(app: &AppHandle, capability: Capability) -> Vec<ResolvedModel>
             found.push(ResolvedModel {
                 model_id: spec.id.to_string(),
                 path,
+                dir,
                 manifest,
             });
         }
@@ -110,6 +119,7 @@ pub fn models_for(app: &AppHandle, capability: Capability) -> Vec<ResolvedModel>
                     found.push(ResolvedModel {
                         model_id: id,
                         path,
+                        dir,
                         manifest,
                     });
                 }
@@ -127,6 +137,31 @@ pub fn best_detector(app: &AppHandle) -> NabuResult<ResolvedModel> {
         .into_iter()
         .next()
         .ok_or_else(error::no_detection_model)
+}
+
+/// The segmenter object removal should use.
+pub fn best_segmenter(app: &AppHandle) -> NabuResult<ResolvedModel> {
+    models_for(app, Capability::Segmenter)
+        .into_iter()
+        .next()
+        .ok_or_else(|| error::no_model_selected("segmentation"))
+}
+
+/// The inpainter object removal should use.
+pub fn best_inpainter(app: &AppHandle) -> NabuResult<ResolvedModel> {
+    models_for(app, Capability::Inpainter)
+        .into_iter()
+        .next()
+        .ok_or_else(|| error::no_model_selected("inpainting"))
+}
+
+/// The depth model, when one is installed.
+///
+/// Depth is genuinely optional: every effect that reads it has a geometric
+/// fallback, so this returns an option rather than an error and the caller
+/// decides whether the absence is worth mentioning.
+pub fn best_depth(app: &AppHandle) -> Option<ResolvedModel> {
+    models_for(app, Capability::Depth).into_iter().next()
 }
 
 #[cfg(test)]

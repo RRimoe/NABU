@@ -14,7 +14,11 @@
 //! installed — the editor keeps working, it just cannot see.
 
 pub mod catalog;
+pub mod depth;
 pub mod detect;
+pub mod inpaint;
 pub mod manifest;
 pub mod preprocess;
+pub mod region;
 pub mod scene;
+pub mod synth;

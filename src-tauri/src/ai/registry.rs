@@ -24,6 +24,8 @@ pub enum ModelTask {
     FaceRestoration,
     /// Finds and names the objects in the image, feeding the scene model.
     Detection,
+    /// Says how far away every pixel is, relative to the rest of the frame.
+    Depth,
 }
 
 /// A single file making up a model (some models need more than one).
@@ -211,6 +213,23 @@ pub const MODELS: &[ModelSpec] = &[
         scale_factor: Some(2),
     },
     ModelSpec {
+        id: "qwen2.5-0.5b-instruct",
+        name: "Qwen2.5 0.5B Instruct",
+        task: ModelTask::Language,
+        description_key: "model.qwen2.5-0.5b-instruct.description",
+        license: "Apache-2.0",
+        commercial_use: true,
+        vram_required_mb: 1024,
+        files: &[ModelFile {
+            file_name: "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+            url: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+            size_bytes: 491_400_032,
+            sha256: Some("74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"),
+        }],
+        input_size: None,
+        scale_factor: None,
+    },
+    ModelSpec {
         id: "qwen2.5-1.5b-instruct",
         name: "Qwen2.5 1.5B Instruct",
         task: ModelTask::Language,
@@ -267,6 +286,43 @@ pub const MODELS: &[ModelSpec] = &[
             },
         ],
         input_size: Some(1024),
+        scale_factor: None,
+    },
+    ModelSpec {
+        id: "depth-anything-v2-small",
+        name: "Depth Anything V2 Small",
+        task: ModelTask::Depth,
+        description_key: "model.depth-anything-v2-small.description",
+        // Only the Small variant is Apache-2.0: Base and Large are
+        // CC-BY-NC-4.0. Adding one of those means flagging it accordingly, not
+        // copying this entry.
+        license: "Apache-2.0",
+        commercial_use: true,
+        vram_required_mb: 512,
+        files: &[ModelFile {
+            file_name: "model.onnx",
+            url: "https://huggingface.co/onnx-community/depth-anything-v2-small/resolve/main/onnx/model.onnx",
+            size_bytes: 99_060_839,
+            sha256: Some("afb6a5c28f3b6bf1618c6e43f02073ef9dfdc70e937502d51603e57b0a1df10c"),
+        }],
+        input_size: Some(518),
+        scale_factor: None,
+    },
+    ModelSpec {
+        id: "depth-anything-v2-small-quantized",
+        name: "Depth Anything V2 Small (quantised)",
+        task: ModelTask::Depth,
+        description_key: "model.depth-anything-v2-small-quantized.description",
+        license: "Apache-2.0",
+        commercial_use: true,
+        vram_required_mb: 256,
+        files: &[ModelFile {
+            file_name: "model.onnx",
+            url: "https://huggingface.co/onnx-community/depth-anything-v2-small/resolve/main/onnx/model_quantized.onnx",
+            size_bytes: 27_258_801,
+            sha256: Some("fcf51f1b230362b28690bb9d1809bf0431f29cad20534e3f589bd7285547f20d"),
+        }],
+        input_size: Some(518),
         scale_factor: None,
     },
 ];

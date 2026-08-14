@@ -1,16 +1,23 @@
 // src/App.tsx
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { TopBar } from './components/TopBar';
 import { LeftRail } from './components/LeftRail';
 import { CanvasViewport } from './components/CanvasViewport';
-import { CommandBar } from './components/CommandBar';
 import { StatusBar } from './components/StatusBar';
 import { SidePanels } from './components/SidePanels';
+import { SuggestionsPanel } from './components/SuggestionsPanel';
+import { FiltersPanel } from './components/FiltersPanel';
+import { AdjustPanel } from './components/AdjustPanel';
+import { FocusPanel } from './components/FocusPanel';
+import { Navigator } from './components/Navigator';
+import { CurvesPanel } from './components/CurvesPanel';
 import { DocumentTabs } from './components/DocumentTabs';
 import { ModelManager } from './components/ModelManager';
 import { RefineBar } from './components/RefineBar';
 import { EmptyState } from './components/EmptyState';
 import { SettingsPanel } from './components/SettingsPanel';
+import { ResizePopover } from './components/ResizePopover';
 import { BusyOverlay } from './components/BusyOverlay';
 import { useDocumentStore, useActiveDocument, useHasDocuments } from './store/documentStore';
 import { useModelStore } from './store/modelStore';
@@ -18,6 +25,7 @@ import { useSceneStore } from './store/sceneStore';
 import { useI18nStore, useT } from './i18n';
 import { describeError } from './i18n/backendError';
 import { useActivityStore } from './store/activityStore';
+import { copySelection, pasteClipboard } from './ops/clipboard';
 import { exportDocumentToPng, RENDER_THEMES, loadImage } from './engine/RenderEngine';
 import './App.css';
 
@@ -28,10 +36,15 @@ function App() {
     undo,
     redo,
     theme,
-    isAIBusy,
     refineMode,
     setRefineMode,
     setSelection,
+    activeTool,
+    setActiveTool,
+    selectionShape,
+    setSelectionShape,
+    dockPanel,
+    setDockPanel,
     openImageAsDocument,
     updateAIProgress,
   } = useDocumentStore();
@@ -42,6 +55,7 @@ function App() {
 
   const [modelsOpen, setModelsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [resizeOpen, setResizeOpen] = useState(false);
   const [panelsOpen, setPanelsOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -100,8 +114,9 @@ function App() {
                 image.naturalWidth,
                 image.naturalHeight
               );
-              // Fast pass of the vision engine, in the background: by the time
-              // the first request mentions an object, the scene already exists.
+              // Reading the scene is now the opening move of the whole
+              // application: the suggestions panel has nothing to say about
+              // the contents of the photo until this comes back.
               void useSceneStore.getState().analyzeActive();
             } catch {
               alert(t('error.unreadableImage', { name: file.name }));
@@ -128,11 +143,37 @@ function App() {
 
       if (e.key === 'Escape') {
         if (refineMode) setRefineMode(null);
+        else if (activeTool !== 'select') setActiveTool('select');
         else setSelection(null);
         return;
       }
 
       if (typing) return;
+
+      // Single letters, the way every editor assigns them: the tool you want,
+      // one keystroke away, without having to aim at anything.
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && hasDocuments) {
+        const key = e.key.toLowerCase();
+        const tools: Record<string, () => void> = {
+          v: () => setActiveTool('select'),
+          h: () => setActiveTool('pan'),
+          c: () => setActiveTool('crop'),
+          t: () => setActiveTool(activeTool === 'transform' ? 'select' : 'transform'),
+          a: () => setDockPanel(dockPanel === 'adjust' ? 'suggestions' : 'adjust'),
+          f: () => setDockPanel(dockPanel === 'filters' ? 'suggestions' : 'filters'),
+          s: () => {
+            const order = ['free', 'rect', 'ellipse'] as const;
+            setSelectionShape(order[(order.indexOf(selectionShape) + 1) % order.length]);
+          },
+        };
+
+        const run = tools[key];
+        if (run) {
+          e.preventDefault();
+          run();
+          return;
+        }
+      }
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
@@ -144,12 +185,31 @@ function App() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
         e.preventDefault();
         fileInputRef.current?.click();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && hasDocuments) {
+        e.preventDefault();
+        void copySelection();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && hasDocuments) {
+        e.preventDefault();
+        void pasteClipboard();
       }
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [undo, redo, refineMode, setRefineMode, setSelection]);
+  }, [
+    undo,
+    redo,
+    refineMode,
+    setRefineMode,
+    setSelection,
+    activeTool,
+    setActiveTool,
+    selectionShape,
+    setSelectionShape,
+    dockPanel,
+    setDockPanel,
+    hasDocuments,
+  ]);
 
   const handleExport = useCallback(async () => {
     if (!doc) return;
@@ -164,15 +224,9 @@ function App() {
     }
   }, [doc, theme, t]);
 
-  /** "Edit" in the rail puts the cursor in the prompt: that is its whole job. */
-  const focusPrompt = useCallback(() => {
-    const input = document.querySelector<HTMLInputElement>('.command-input');
-    input?.focus();
-  }, []);
-
   return (
     <div
-      className={`nabu-app ${showPanels ? 'panels-open' : ''}`}
+      className={`nabu-app ${hasDocuments ? 'has-dock' : ''}`}
       onDragOver={(e) => {
         e.preventDefault();
         setDragging(true);
@@ -199,13 +253,15 @@ function App() {
         style={{ display: 'none' }}
       />
 
-      <LeftRail
+      <TopBar
         onOpen={() => fileInputRef.current?.click()}
         onExport={handleExport}
         onSettings={() => setSettingsOpen(true)}
-        onEdit={focusPrompt}
+        onResize={() => setResizeOpen(true)}
         hasPhoto={hasDocuments}
       />
+
+      <LeftRail hasPhoto={hasDocuments} />
 
       <div className="nabu-stage">
         <DocumentTabs />
@@ -219,21 +275,72 @@ function App() {
             <EmptyState onOpen={() => fileInputRef.current?.click()} dragging={dragging} />
           )}
 
-          {refineMode ? (
-            <RefineBar />
-          ) : (
-            <CommandBar busy={isAIBusy} disabled={!hasDocuments} />
-          )}
+          {refineMode && <RefineBar />}
         </div>
       </div>
 
-      {showPanels && <SidePanels />}
+      {/* One dock on the right. What it shows is the rail's business; the
+          professional panels stack underneath whatever is up there. */}
+      {(hasDocuments || showPanels) && (
+        <aside className="nabu-dock">
+          {hasDocuments && dockPanel === 'suggestions' && (
+            <SuggestionsPanel onNeedsModel={() => setModelsOpen(true)} />
+          )}
+
+          {hasDocuments && dockPanel === 'filters' && (
+            <FiltersPanel onClose={() => setDockPanel('suggestions')} />
+          )}
+
+          {hasDocuments && dockPanel === 'adjust' && (
+            <>
+              <section className="side-panel">
+                <header className="side-panel-header">
+                  <span>{t('panels.navigator')}</span>
+                </header>
+                <Navigator />
+              </section>
+
+              <section className="side-panel">
+                <header className="side-panel-header">
+                  <span>{t('panels.adjust')}</span>
+                </header>
+                <AdjustPanel />
+              </section>
+
+              <section className="side-panel">
+                <header className="side-panel-header">
+                  <span>{t('panels.focus')}</span>
+                </header>
+                <FocusPanel />
+              </section>
+
+              <section className="side-panel">
+                <header className="side-panel-header">
+                  <span>{t('panels.curves')}</span>
+                </header>
+                <CurvesPanel />
+              </section>
+            </>
+          )}
+
+          {showPanels && <SidePanels />}
+        </aside>
+      )}
 
       <StatusBar
         panelsOpen={showPanels}
         panelsAvailable={panelsAvailable}
         onTogglePanels={() => setPanelsOpen((o) => !o)}
+        onOpenModels={() => setModelsOpen(true)}
       />
+
+      {resizeOpen && (
+        <div className="nabu-modal-backdrop" onMouseDown={() => setResizeOpen(false)}>
+          <div className="resize-centred" onMouseDown={(e) => e.stopPropagation()}>
+            <ResizePopover onClose={() => setResizeOpen(false)} />
+          </div>
+        </div>
+      )}
 
       <SettingsPanel
         open={settingsOpen}

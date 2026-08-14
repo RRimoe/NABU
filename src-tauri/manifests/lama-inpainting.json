@@ -1,0 +1,18 @@
+{
+  "id": "lama-inpainting",
+  "capability": "inpainter",
+  "file": "big-lama.onnx",
+  "priority": 10,
+  "cpuOnly": true,
+  "input": {
+    "width": 512,
+    "height": 512,
+    "resize": "stretch"
+  },
+  "output": {
+    "family": "lama",
+    "imageInput": "image",
+    "maskInput": "mask",
+    "output": "output"
+  }
+}

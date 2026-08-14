@@ -10,7 +10,16 @@
 // The result is cached per (image, settings): re-rendering the canvas for an
 // unrelated reason must not re-run the pipeline.
 
-import { type Adjustments, isNeutral } from '../types/document';
+import {
+  type Adjustments,
+  type Curves,
+  type FocusEffect,
+  areCurvesNeutral,
+  isFocusNeutral,
+  isNeutral,
+  NEUTRAL_CURVES,
+} from '../types/document';
+import { buildCurveLut, LUT_SIZE } from './curves';
 
 const VERTEX_SHADER = `#version 300 es
 in vec2 a_position;
@@ -69,8 +78,24 @@ in vec2 v_uv;
 out vec4 outColour;
 
 uniform sampler2D u_image;      // original pixels
-uniform sampler2D u_blurred;    // blurred copy, for blur and clarity
+uniform sampler2D u_blurred;    // blurred copy, for blur, clarity and focus
+uniform sampler2D u_bloomTex;   // separately blurred copy, for the glow
+uniform sampler2D u_lut;        // 256x1 tone-curve table, one axis per channel
+uniform sampler2D u_focusMask;  // white where the picture stays sharp
+uniform float u_hasLut;         // 0 when every curve is still the diagonal
 uniform vec2 u_texelSize;
+
+// Selective focus. 0 off, 1 mask, 2 linear band, 3 ellipse, 4 depth plane.
+uniform float u_focusMode;
+uniform float u_focusPlane;     // the distance that stays sharp, depth mode
+uniform float u_focusWeight;    // blur mix inside the soft zone, 0..1
+uniform float u_focusFeather;
+uniform float u_focusInvert;
+uniform vec2 u_focusCentre;
+uniform float u_focusSize;
+uniform float u_focusAspect;
+uniform float u_focusAngle;     // radians
+uniform float u_frameAspect;    // image width / height
 
 uniform float u_exposure;
 uniform float u_contrast;
@@ -88,9 +113,14 @@ uniform float u_sharpness;
 uniform float u_blurAmount;
 uniform float u_vignette;
 uniform float u_grain;
+uniform float u_bloom;
+uniform float u_aberration;
 uniform float u_seed;
 
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
+
+/** Brightness a pixel has to pass before it is allowed to glow. */
+const float BLOOM_FLOOR = 0.62;
 
 float luminance(vec3 c) { return dot(c, LUMA); }
 
@@ -116,12 +146,81 @@ vec3 applyHue(vec3 colour, float degrees) {
   return clamp(colour * m, 0.0, 1.0);
 }
 
+/**
+ * How much this pixel should be blurred by the focus effect: 0 stays sharp,
+ * 1 takes the blurred copy in full.
+ *
+ * The three modes share one number so the rest of the shader never has to know
+ * whether the sharp zone came from a segmented object or from a band drawn
+ * across the frame.
+ */
+float focusBlend() {
+  if (u_focusMode < 0.5) return 0.0;
+
+  float outside;
+
+  if (u_focusMode < 1.5) {
+    // A cutout mask: white marks what stays sharp.
+    outside = 1.0 - texture(u_focusMask, v_uv).r;
+  } else if (u_focusMode > 3.5) {
+    // A depth map, read as a lens reads it: one distance is in focus and
+    // everything falls off on both sides of it. That is what separates this
+    // from a cutout: the background does not blur uniformly, it blurs more
+    // the further away it is, and a foreground branch blurs too.
+    float distance = abs(texture(u_focusMask, v_uv).r - u_focusPlane);
+    outside = smoothstep(u_focusSize, u_focusSize + max(0.002, u_focusFeather), distance);
+  } else {
+    // Both axes are put into the same unit (fractions of the frame's height)
+    // before any distance is measured. Working in raw texture coordinates
+    // would stretch the band and the ellipse with the picture's shape, so a
+    // tilt-shift set at 15 degrees would come out at some other angle on a
+    // panorama than on a square.
+    //
+    // Keep this file's GLSL pure ASCII: a shader that fails to compile takes
+    // every adjustment down with it, quietly.
+    vec2 p = v_uv - u_focusCentre;
+    p.x *= u_frameAspect;
+
+    if (u_focusMode < 2.5) {
+      // Distance from the centre line of a band, measured across it.
+      float c = cos(u_focusAngle);
+      float s = sin(u_focusAngle);
+      float across = abs(p.x * s + p.y * c);
+      outside = smoothstep(u_focusSize, u_focusSize + max(0.002, u_focusFeather), across);
+    } else {
+      p.x /= max(0.05, u_focusAspect);
+      outside = smoothstep(u_focusSize, u_focusSize + max(0.002, u_focusFeather), length(p));
+    }
+  }
+
+  if (u_focusInvert > 0.5) outside = 1.0 - outside;
+  return clamp(outside, 0.0, 1.0) * u_focusWeight;
+}
+
 void main() {
   vec4 texel = texture(u_image, v_uv);
   vec4 blurred = texture(u_blurred, v_uv);
 
-  // Blur mixes towards the blurred copy so the slider reads as an amount.
-  vec3 colour = mix(texel.rgb, blurred.rgb, clamp(u_blurAmount, 0.0, 1.0));
+  // --- Chromatic aberration, before anything else -------------------------
+  // The fringing belongs to the lens, so it happens to the light on its way in
+  // rather than to the finished grade. Red is pulled towards the centre and
+  // blue away from it, which is the direction real glass disperses them.
+  vec3 base = texel.rgb;
+  if (u_aberration > 0.001) {
+    vec2 outward = v_uv - 0.5;
+    float shift = u_aberration * 0.012;
+    base = vec3(
+      texture(u_image, v_uv - outward * shift).r,
+      base.g,
+      texture(u_image, v_uv + outward * shift).b
+    );
+  }
+
+  // Blur mixes towards the blurred copy so the slider reads as an amount. The
+  // focus effect adds to it per pixel: outside the sharp zone, more of the
+  // blurred copy shows through.
+  float blurMix = clamp(u_blurAmount + focusBlend(), 0.0, 1.0);
+  vec3 colour = mix(base, blurred.rgb, blurMix);
   float alpha = texel.a;
 
   // --- Exposure, in linear light where doubling really is one stop --------
@@ -199,6 +298,26 @@ void main() {
 
   colour = applyHue(colour, u_hue);
 
+  // --- Tone curves --------------------------------------------------------
+  // Last of the colour stages, so the curve grades the finished tones rather
+  // than a half-corrected image: the order every photo editor uses.
+  if (u_hasLut > 0.5) {
+    colour = vec3(
+      texture(u_lut, vec2(colour.r, 0.5)).r,
+      texture(u_lut, vec2(colour.g, 0.5)).g,
+      texture(u_lut, vec2(colour.b, 0.5)).b
+    );
+  }
+
+  // --- Bloom --------------------------------------------------------------
+  // Only what is genuinely bright is allowed to glow, and it is added rather
+  // than mixed: light spilling past an edge makes the picture brighter there,
+  // it does not replace what was underneath.
+  if (u_bloom > 0.001) {
+    vec3 spill = max(texture(u_bloomTex, v_uv).rgb - BLOOM_FLOOR, vec3(0.0)) / (1.0 - BLOOM_FLOOR);
+    colour = clamp(colour + spill * u_bloom, 0.0, 1.0);
+  }
+
   // --- Vignette -----------------------------------------------------------
   if (abs(u_vignette) > 0.001) {
     vec2 centred = v_uv - 0.5;
@@ -263,11 +382,59 @@ function uniformsFor(a: Adjustments) {
     u_blurAmount: Math.min(1, a.blur / 20),
     u_vignette: a.vignette / 100,
     u_grain: Math.max(0, a.grain) / 100,
+    u_bloom: Math.max(0, a.bloom) / 100,
+    u_aberration: Math.max(0, a.aberration) / 100,
   };
 }
 
 /** Radius, in pixels, of the blurred reference clarity compares against. */
 const CLARITY_RADIUS = 12;
+
+/** Spread of the bloom, in thousandths of the longest side. */
+const BLOOM_RADIUS = 14;
+
+/**
+ * Maps the focus settings onto their uniforms.
+ *
+ * The blur strength is separated from the geometry: the shader mixes towards a
+ * copy that has already been blurred by the right radius, so this only has to
+ * say *how much* of it shows at full effect.
+ */
+function focusUniforms(focus?: FocusEffect) {
+  if (!focus) {
+    return {
+      u_focusMode: 0,
+      u_focusWeight: 0,
+      u_focusFeather: 0,
+      u_focusInvert: 0,
+      u_focusSize: 0,
+      u_focusAspect: 1,
+      u_focusAngle: 0,
+      u_focusPlane: 0.5,
+    };
+  }
+
+  const modes: Record<FocusEffect['mode'], number> = {
+    off: 0,
+    mask: 1,
+    linear: 2,
+    radial: 3,
+    depth: 4,
+  };
+
+  return {
+    u_focusMode: modes[focus.mode],
+    // A soft zone always takes the blurred copy in full; the radius is what
+    // makes it gentle or extreme, which is how a real aperture behaves.
+    u_focusWeight: 1,
+    u_focusFeather: Math.max(0.002, focus.feather),
+    u_focusInvert: focus.invert ? 1 : 0,
+    u_focusSize: Math.max(0, focus.size),
+    u_focusAspect: Math.max(0.05, focus.aspect),
+    u_focusAngle: (focus.angle * Math.PI) / 180,
+    u_focusPlane: Math.min(1, Math.max(0, focus.plane)),
+  };
+}
 
 /**
  * Applies an adjustment stack to an image and returns the result as a canvas
@@ -283,6 +450,14 @@ export class AdjustmentProcessor {
   private blurProgram: WebGLProgram | null = null;
   private adjustProgram: WebGLProgram | null = null;
   private quad: WebGLBuffer | null = null;
+  /**
+   * The last blurred copy, kept alive between calls.
+   *
+   * One slot, because the case worth optimising is a repeated call about the
+   * same image — a slider or a guide being dragged. Two images alternating
+   * simply miss, which is what happened every time before.
+   */
+  private blurCache: { key: string; texture: WebGLTexture } | null = null;
   private failed = false;
 
   constructor() {
@@ -319,6 +494,35 @@ export class AdjustmentProcessor {
 
   public get available(): boolean {
     return !this.failed;
+  }
+
+  /**
+   * Uploads the curve table.
+   *
+   * Linear filtering rather than nearest: the table has one entry per 8-bit
+   * value, and interpolating between two of them costs nothing while keeping a
+   * steep curve free of visible banding.
+   */
+  private makeLutTexture(curves: Curves): WebGLTexture {
+    const gl = this.gl!;
+    const texture = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA8,
+      LUT_SIZE,
+      1,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      buildCurveLut(curves)
+    );
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return texture;
   }
 
   private makeTexture(width: number, height: number): WebGLTexture {
@@ -393,9 +597,26 @@ export class AdjustmentProcessor {
     image: TexImageSource,
     width: number,
     height: number,
-    adjustments: Adjustments
+    adjustments: Adjustments,
+    curves?: Curves,
+    focus?: FocusEffect,
+    /** Decoded focus mask; the caller owns the decoding so this stays sync. */
+    focusMask?: TexImageSource | null,
+    /**
+     * Identifies the source pixels, so the blurred copy can be reused when
+     * only the settings changed. Omit and nothing is cached.
+     */
+    cacheKey?: string
   ): HTMLCanvasElement | null {
-    if (this.failed || isNeutral(adjustments)) return null;
+    const flatCurves = areCurvesNeutral(curves);
+    // A mask that has not finished decoding yet is treated as no focus at all:
+    // showing the whole picture blurred for one frame would look like a bug.
+    const activeFocus =
+      focus && !isFocusNeutral(focus) && (focus.mode !== 'mask' || focusMask)
+        ? focus
+        : undefined;
+
+    if (this.failed || (isNeutral(adjustments) && flatCurves && !activeFocus)) return null;
 
     const gl = this.gl!;
     this.canvas.width = width;
@@ -413,15 +634,55 @@ export class AdjustmentProcessor {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, image);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
 
-      // Clarity needs a wide blurred reference; the blur slider needs its own.
-      const needsBlur = adjustments.blur > 0;
+      // One blurred copy serves the blur slider, clarity's reference and the
+      // focus effect, so the widest request wins. Scaling the focus radius by
+      // the image size keeps a tilt-shift looking the same on a thumbnail as
+      // on the full picture — otherwise every preview would lie.
+      const focusRadius = activeFocus
+        ? (activeFocus.amount / 1000) * Math.max(width, height)
+        : 0;
       const needsClarity = adjustments.clarity !== 0;
-      const radius = needsBlur ? adjustments.blur : needsClarity ? CLARITY_RADIUS : 0;
+      const radius = Math.max(
+        adjustments.blur,
+        focusRadius,
+        needsClarity ? CLARITY_RADIUS : 0
+      );
 
+      // The blurred copy is the expensive part of the pass — two separable
+      // passes of up to twenty-four taps each — and it depends on nothing but
+      // the image and the radius. Dragging a tilt-shift across a photograph
+      // changes only *where* the band is, so rebuilding the blur on every frame
+      // was paying the whole cost of the effect to move a line.
       let blurredTexture = sourceTexture;
       if (radius > 0) {
-        blurredTexture = this.blur(sourceTexture, width, height, radius, framebuffer);
-        created.push(blurredTexture);
+        const key = `${cacheKey ?? ''}|${width}x${height}|${radius.toFixed(2)}`;
+        if (this.blurCache && this.blurCache.key === key) {
+          blurredTexture = this.blurCache.texture;
+        } else {
+          if (this.blurCache) gl.deleteTexture(this.blurCache.texture);
+          this.blurCache = null;
+          const built = this.blur(sourceTexture, width, height, radius, framebuffer);
+          // Deliberately *not* pushed onto `created`: it outlives this call.
+          // Without a cache key there is nothing to match on later, so it is
+          // freed here like anything else.
+          if (cacheKey) this.blurCache = { key, texture: built };
+          else created.push(built);
+          blurredTexture = built;
+        }
+      }
+
+      // Bloom gets a copy of its own: sharing the blur above would make the
+      // glow as wide as whatever a tilt-shift happened to ask for.
+      let bloomTexture = blurredTexture;
+      if (adjustments.bloom > 0) {
+        bloomTexture = this.blur(
+          sourceTexture,
+          width,
+          height,
+          (BLOOM_RADIUS / 1000) * Math.max(width, height),
+          framebuffer
+        );
+        created.push(bloomTexture);
       }
 
       // Final pass renders to the canvas itself.
@@ -438,6 +699,63 @@ export class AdjustmentProcessor {
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, blurredTexture);
       gl.uniform1i(gl.getUniformLocation(program, 'u_blurred'), 1);
+
+      // The unit is selected *before* the table is built: creating a texture
+      // binds it to whichever unit is active, and doing that afterwards would
+      // quietly replace the blurred copy on unit 1.
+      //
+      // A sampler left unbound reads as texture unit 0 on some drivers, which
+      // would run the photo itself through the curve lookup: bind a table
+      // either way and let the flag decide whether it is used.
+      gl.activeTexture(gl.TEXTURE2);
+      const lutTexture = this.makeLutTexture(flatCurves ? NEUTRAL_CURVES : curves!);
+      created.push(lutTexture);
+      gl.uniform1i(gl.getUniformLocation(program, 'u_lut'), 2);
+      gl.uniform1f(gl.getUniformLocation(program, 'u_hasLut'), flatCurves ? 0 : 1);
+
+      gl.activeTexture(gl.TEXTURE3);
+      gl.bindTexture(gl.TEXTURE_2D, bloomTexture);
+      gl.uniform1i(gl.getUniformLocation(program, 'u_bloomTex'), 3);
+
+      // The mask is uploaded with the same vertical flip as the photo, so a
+      // white pixel in the mask lands on the object it was cut from.
+      gl.activeTexture(gl.TEXTURE4);
+      const maskTexture = this.makeTexture(1, 1);
+      created.push(maskTexture);
+      gl.bindTexture(gl.TEXTURE_2D, maskTexture);
+      if (focusMask) {
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, focusMask);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+      } else {
+        // Opaque white: no mask means nothing is ever pushed out of focus.
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          gl.RGBA8,
+          1,
+          1,
+          0,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          new Uint8Array([255, 255, 255, 255])
+        );
+      }
+      gl.uniform1i(gl.getUniformLocation(program, 'u_focusMask'), 4);
+
+      for (const [name, value] of Object.entries(focusUniforms(activeFocus))) {
+        gl.uniform1f(gl.getUniformLocation(program, name), value);
+      }
+      gl.uniform2f(
+        gl.getUniformLocation(program, 'u_focusCentre'),
+        activeFocus?.centreX ?? 0.5,
+        // Texture space runs bottom-up; the interface talks top-down.
+        1 - (activeFocus?.centreY ?? 0.5)
+      );
+      gl.uniform1f(
+        gl.getUniformLocation(program, 'u_frameAspect'),
+        height > 0 ? width / height : 1
+      );
 
       gl.uniform2f(gl.getUniformLocation(program, 'u_texelSize'), 1 / width, 1 / height);
       gl.uniform1f(gl.getUniformLocation(program, 'u_seed'), 0.0);
@@ -462,6 +780,21 @@ export class AdjustmentProcessor {
       gl.deleteFramebuffer(framebuffer);
     }
   }
+}
+
+let shared: AdjustmentProcessor | null = null;
+
+/**
+ * The one processor everything goes through.
+ *
+ * A browser allows only a handful of live WebGL contexts, and the filter panel
+ * alone would want one per thumbnail. Since `process` is synchronous and hands
+ * back a copy of its result, a single context serves the viewport, the export
+ * and every preview without them ever seeing each other's pixels.
+ */
+export function sharedProcessor(): AdjustmentProcessor {
+  if (!shared) shared = new AdjustmentProcessor();
+  return shared;
 }
 
 /** Stable key for caching a processed result. */

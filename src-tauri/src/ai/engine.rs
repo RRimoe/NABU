@@ -88,20 +88,26 @@ impl SessionCache {
     ) -> NabuResult<Arc<Mutex<Session>>> {
         let key = format!("{model_id}/{file_name}");
         let path = resolve_model_file(app, model_id, file_name)?;
-        self.get_or_load_at(&key, &path)
+        self.get_or_load_at(&key, &path, false)
     }
 
     /// Returns the session for a model file at an explicit path.
     ///
-    /// This is the entry point for sideloaded models: they are described by a
-    /// manifest on disk rather than by the built-in catalogue, so there is no
-    /// registry entry to resolve the path through.
-    pub fn get_or_load_at(&self, key: &str, path: &Path) -> NabuResult<Arc<Mutex<Session>>> {
+    /// This is the entry point for manifest-described models. `cpu_only`
+    /// comes from the manifest: some networks contain operators the GPU
+    /// provider accepts and then fails at run time, and the manifest is where
+    /// that knowledge lives.
+    pub fn get_or_load_at(
+        &self,
+        key: &str,
+        path: &Path,
+        cpu_only: bool,
+    ) -> NabuResult<Arc<Mutex<Session>>> {
         if let Some(existing) = self.sessions.lock().unwrap().get(key) {
             return Ok(existing.clone());
         }
 
-        let session = build_session(&path.to_path_buf())?;
+        let session = build_session(&path.to_path_buf(), cpu_only)?;
         let session = Arc::new(Mutex::new(session));
 
         self.sessions
@@ -165,12 +171,21 @@ pub fn resolve_model_file(
 ///
 /// Execution providers are listed in order of preference: ONNX Runtime uses the
 /// first that initialises and falls back to the next, so CPU at the end
-/// guarantees the work still runs.
-fn build_session(path: &PathBuf) -> NabuResult<Session> {
+/// guarantees the work still runs. With `cpu_only` no accelerator is offered
+/// at all — for models whose operators a GPU provider accepts and then fails
+/// on at run time.
+pub fn build_session(path: &PathBuf, cpu_only: bool) -> NabuResult<Session> {
     let mut builder = Session::builder()
         .map_err(error::inference_failed)?
         .with_optimization_level(GraphOptimizationLevel::Level3)
         .map_err(error::inference_failed)?;
+
+    if cpu_only {
+        builder = builder
+            .with_execution_providers([ort::ep::CPU::default().build()])
+            .map_err(error::inference_failed)?;
+        return builder.commit_from_file(path).map_err(error::inference_failed);
+    }
 
     #[cfg(windows)]
     {

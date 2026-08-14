@@ -23,7 +23,14 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Capability {
+    /// Image in, classified boxes out.
     Detector,
+    /// Image plus a box in, mask of the object inside it out.
+    Segmenter,
+    /// Image plus a mask in, image with the masked region rebuilt out.
+    Inpainter,
+    /// Image in, one relative distance per pixel out.
+    Depth,
     #[serde(other)]
     Unknown,
 }
@@ -114,6 +121,49 @@ pub enum OutputSpec {
         /// Class names, indexed by the logit position.
         labels: Vec<String>,
     },
+    /// Segment-Anything style segmenters split into two stages: the manifest's
+    /// `file` is the vision encoder, `decoder` names the prompt-encoder /
+    /// mask-decoder file next to it. This family owns its preprocessing (SAM's
+    /// aspect-preserving resize and zero padding), so the manifest `input`
+    /// section is documentation more than instruction.
+    #[serde(rename_all = "camelCase")]
+    Sam {
+        /// File name of the prompt encoder + mask decoder stage.
+        decoder: String,
+    },
+    /// Mask-directed inpainters in the LaMa lineage: an image tensor and a
+    /// binary mask tensor in, the rebuilt image out, values on a 0..255 scale.
+    #[serde(rename_all = "camelCase")]
+    Lama {
+        /// Name of the image input tensor.
+        image_input: String,
+        /// Name of the mask input tensor.
+        mask_input: String,
+        /// Name of the output tensor.
+        output: String,
+    },
+    /// Dense-prediction transformers in the DPT lineage (MiDaS, Depth
+    /// Anything): one image tensor in, one `[1, H, W]` map of *relative
+    /// inverse* depth out — larger means nearer, and the scale is arbitrary.
+    ///
+    /// Arbitrary is why the decoder normalises: nothing downstream can compare
+    /// two images' raw values, so the only honest reading is "where is the near
+    /// end and the far end of *this* picture".
+    #[serde(rename_all = "camelCase")]
+    Dpt {
+        /// Name of the output tensor. Optional in practice: a model with a
+        /// single output is unambiguous, and export tools rename freely.
+        #[serde(default)]
+        output: String,
+        /// True when the network predicts inverse depth (near = large), which
+        /// is what every model in this family currently does.
+        #[serde(default = "default_true")]
+        inverse: bool,
+    },
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -133,6 +183,12 @@ pub struct ModelManifest {
     pub confidence_threshold: f32,
     #[serde(default = "default_max_objects")]
     pub max_objects: usize,
+    /// Force CPU execution for this model. Some networks contain operators a
+    /// GPU provider claims and then fails at run time — LaMa's Fourier
+    /// convolutions under DirectML are the canonical case — and where a model
+    /// runs is exactly the kind of quirk a manifest exists to carry.
+    #[serde(default)]
+    pub cpu_only: bool,
 }
 
 fn default_threshold() -> f32 {
@@ -210,7 +266,32 @@ mod tests {
 
         assert_eq!(manifest.id, "dfine-nano");
         assert_eq!(manifest.capability, Capability::Detector);
-        let OutputSpec::Detr { labels, .. } = &manifest.output;
+        let OutputSpec::Detr { labels, .. } = &manifest.output else {
+            panic!("dfine manifest must be of the detr family");
+        };
         assert_eq!(labels.len(), 80, "COCO has 80 classes");
+    }
+
+    #[test]
+    fn parses_the_segmenter_and_inpainter_families() {
+        let sam = ModelManifest::parse(
+            r#"{
+                "id": "s", "capability": "segmenter", "file": "encoder.onnx",
+                "input": { "width": 1024, "height": 1024 },
+                "output": { "family": "sam", "decoder": "decoder.onnx" }
+            }"#,
+        )
+        .expect("sam manifest");
+        assert_eq!(sam.capability, Capability::Segmenter);
+
+        let lama = ModelManifest::parse(
+            r#"{
+                "id": "l", "capability": "inpainter", "file": "model.onnx",
+                "input": { "width": 512, "height": 512 },
+                "output": { "family": "lama", "imageInput": "image", "maskInput": "mask", "output": "output" }
+            }"#,
+        )
+        .expect("lama manifest");
+        assert_eq!(lama.capability, Capability::Inpainter);
     }
 }

@@ -1,60 +1,40 @@
 // src/components/AdjustPanel.tsx
 import { RotateCcw } from 'lucide-react';
 import { useDocumentStore, useActiveDocument } from '../store/documentStore';
-import { type Adjustments, NEUTRAL_ADJUSTMENTS, isNeutral } from '../types/document';
+import {
+  type Adjustments,
+  ADJUSTMENT_RANGES,
+  NEUTRAL_ADJUSTMENTS,
+  isNeutral,
+} from '../types/document';
 import { useT } from '../i18n';
-
-interface Slider {
-  key: keyof Adjustments;
-  min: number;
-  max: number;
-}
 
 interface Group {
   titleKey: string;
-  sliders: Slider[];
+  sliders: Array<keyof Adjustments>;
 }
 
 /**
  * Grouped the way a photographer expects to find them, not the way the shader
- * happens to evaluate them.
+ * happens to evaluate them. The ranges come from the type, so a slider and the
+ * filter engine can never disagree about how far a value may go.
  */
 const GROUPS: Group[] = [
   {
     titleKey: 'adjust.group.tone',
-    sliders: [
-      { key: 'exposure', min: -100, max: 100 },
-      { key: 'contrast', min: -100, max: 100 },
-      { key: 'highlights', min: -100, max: 100 },
-      { key: 'shadows', min: -100, max: 100 },
-      { key: 'whites', min: -100, max: 100 },
-      { key: 'blacks', min: -100, max: 100 },
-    ],
+    sliders: ['exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks'],
   },
   {
     titleKey: 'adjust.group.colour',
-    sliders: [
-      { key: 'temperature', min: -100, max: 100 },
-      { key: 'tint', min: -100, max: 100 },
-      { key: 'vibrance', min: -100, max: 100 },
-      { key: 'saturation', min: -100, max: 100 },
-      { key: 'hue', min: -180, max: 180 },
-    ],
+    sliders: ['temperature', 'tint', 'vibrance', 'saturation', 'hue'],
   },
   {
     titleKey: 'adjust.group.presence',
-    sliders: [
-      { key: 'clarity', min: -100, max: 100 },
-      { key: 'sharpness', min: 0, max: 100 },
-      { key: 'blur', min: 0, max: 20 },
-    ],
+    sliders: ['clarity', 'sharpness', 'blur'],
   },
   {
     titleKey: 'adjust.group.effects',
-    sliders: [
-      { key: 'vignette', min: -100, max: 100 },
-      { key: 'grain', min: 0, max: 100 },
-    ],
+    sliders: ['vignette', 'grain', 'bloom', 'aberration'],
   },
 ];
 
@@ -76,7 +56,8 @@ export const AdjustPanel: React.FC = () => {
         <section key={group.titleKey} className="adjust-group">
           <h4 className="adjust-group-title">{t(group.titleKey)}</h4>
 
-          {group.sliders.map(({ key, min, max }) => {
+          {group.sliders.map((key) => {
+            const [min, max] = ADJUSTMENT_RANGES[key];
             const value = values[key];
             const modified = value !== 0;
 

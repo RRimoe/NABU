@@ -59,12 +59,29 @@ pub const TOOLS: &[ToolSpec] = &[
         params: &[],
     },
     ToolSpec {
+        name: "remove_selection",
+        description: "Erase whatever is inside the user's current selection and rebuild the background behind it. Only valid when a selection exists. Prefer it over remove_object when the user says to remove 'this' or the thing they selected, and when what should be removed is not in the SCENE list but a selection exists.",
+        params: &[],
+    },
+    ToolSpec {
         name: "select_object",
         description: "Select one object from the SCENE list by its id number. Use when the user points at a thing in the photo — the person, the red car, the dog on the left. Pick the id whose class, colour and position best match the request. Only valid when the context contains a SCENE list.",
         params: &[ToolParam {
             name: "id",
             kind: "number",
             description: "Id of the object in the SCENE list: 2 selects the entry '#2'.",
+            required: true,
+            min: Some(1.0),
+            max: None,
+        }],
+    },
+    ToolSpec {
+        name: "remove_object",
+        description: "Erase one object from the photo and rebuild the background behind it. Use when the user asks to remove, delete or get rid of a thing that appears in the SCENE list; pick the id whose class, colour and position best match. If nothing in the SCENE matches what should be removed, use `report_unsupported` with feature `remove-object` instead of guessing.",
+        params: &[ToolParam {
+            name: "id",
+            kind: "number",
+            description: "Id of the object in the SCENE list: 2 removes the entry '#2'.",
             required: true,
             min: Some(1.0),
             max: None,
@@ -140,7 +157,26 @@ vignette = darkens the corners. grain = adds film noise.",
         description: "Undo every tonal and colour adjustment, returning the photo to how it looked when opened.",
         params: &[],
     },
+    ToolSpec {
+        // A small model forced to always call a tool will otherwise shoehorn
+        // an impossible request into the nearest tool and silently do the
+        // wrong thing. Giving it an honest "cannot do that yet" keeps the
+        // answer truthful and tells the interface which message to show.
+        name: "report_unsupported",
+        description: "Report that the request is understood but needs a capability Nabu does not have yet. Use for replacing or adding content, generating imagery, or removing something that does NOT appear in the SCENE list. Selecting and removing objects that ARE in the SCENE list are supported, via `select_object` and `remove_object`.",
+        params: &[ToolParam {
+            name: "feature",
+            kind: "string",
+            description: "Which missing capability the request needs. remove-object = erase something from the photo and fill the hole. replace-content = swap or add content (sky, faces, objects). generate = create new imagery from scratch.",
+            required: true,
+            min: None,
+            max: None,
+        }],
+    },
 ];
+
+/// Values `report_unsupported.feature` accepts, mirrored into the schema.
+pub const UNSUPPORTED_FEATURES: &[&str] = &["remove-object", "replace-content", "generate"];
 
 /// Properties `adjust` accepts, matching the `Adjustments` record on the
 /// frontend. Declared here so a typo in a model's answer can be rejected.
@@ -239,6 +275,9 @@ pub fn parameters_schema(spec: &ToolSpec) -> serde_json::Value {
         if spec.name == "adjust" && param.name == "property" {
             entry.insert("enum".into(), serde_json::json!(ADJUSTMENT_PROPERTIES));
         }
+        if spec.name == "report_unsupported" && param.name == "feature" {
+            entry.insert("enum".into(), serde_json::json!(UNSUPPORTED_FEATURES));
+        }
         properties.insert(param.name.into(), serde_json::Value::Object(entry));
         if param.required {
             required.push(param.name);
@@ -300,6 +339,25 @@ pub fn normalise(call: &mut ToolCall) -> Result<(), String> {
 
         if let Some(object) = call.arguments.as_object_mut() {
             object.insert("property".into(), serde_json::json!(canonical));
+        }
+    }
+
+    if call.name == "report_unsupported" {
+        // The interface shows the same message whichever capability is
+        // missing, so an invented value is folded into the generic one rather
+        // than turned into an error the user has to read.
+        let raw = call
+            .arguments
+            .get("feature")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase();
+
+        if !UNSUPPORTED_FEATURES.contains(&raw.as_str()) {
+            if let Some(object) = call.arguments.as_object_mut() {
+                object.insert("feature".into(), serde_json::json!("generate"));
+            }
         }
     }
 

@@ -1,5 +1,6 @@
 // src/components/EmptyState.tsx
 import { ImagePlus } from 'lucide-react';
+import { Logo } from './Logo';
 import { useT } from '../i18n';
 
 interface Props {
@@ -19,9 +20,14 @@ export const EmptyState: React.FC<Props> = ({ onOpen, dragging }) => {
   return (
     <div className={`nabu-empty ${dragging ? 'dragging' : ''}`} onClick={onOpen}>
       <div className="empty-inner">
-        <ImagePlus size={30} strokeWidth={1.3} />
+        {/* The only screen with room for the mark in full colour. Everywhere
+            else it competes with the photograph, which always wins. */}
+        <Logo size={96} tone="colour" className="empty-logo" />
         <p className="empty-title">{t('empty.title')}</p>
-        <p className="empty-hint">{t('empty.hint')}</p>
+        <p className="empty-hint">
+          <ImagePlus size={14} strokeWidth={1.6} />
+          <span>{t('empty.hint')}</span>
+        </p>
       </div>
     </div>
   );

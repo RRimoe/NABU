@@ -1,12 +1,24 @@
 // src/engine/RenderEngine.ts
-import { AdjustmentProcessor, adjustmentKey } from './adjustments';
+import { adjustmentKey, sharedProcessor } from './adjustments';
+import { curvesKey } from './curves';
+import { effectiveAdjustments } from './filters';
+import { alphaFromLuminance, compositeThroughMask } from './maskAlpha';
 import {
   NabuDocument,
+  LayerNode,
+  Adjustments,
+  FocusEffect,
+  LocalAdjustment,
   ViewportTransform,
   BlendMode,
   ThemeMode,
   Selection,
+  ADJUSTMENT_RANGES,
+  areCurvesNeutral,
+  isFocusNeutral,
+  isLocalNeutral,
   BACKGROUND_LAYER_ID,
+  NEUTRAL_ADJUSTMENTS,
 } from '../types/document';
 
 /** Colours used by the canvas, aligned with the active interface theme. */
@@ -18,20 +30,24 @@ export interface RenderTheme {
   docBorder: string;
 }
 
+/**
+ * The canvas paints outside CSS, so these have to be kept in step with the
+ * variables in App.css by hand. Same blues, same faint tint in the greys.
+ */
 export const RENDER_THEMES: Record<ThemeMode, RenderTheme> = {
   dark: {
-    viewportBg: '#0f0f13',
-    checkerLight: '#2a2a32',
-    checkerDark: '#1e1e24',
+    viewportBg: '#0d1117',
+    checkerLight: '#272e3a',
+    checkerDark: '#1b212a',
     paper: '#ffffff',
-    docBorder: 'rgba(255, 255, 255, 0.22)',
+    docBorder: 'rgba(180, 214, 232, 0.22)',
   },
   light: {
-    viewportBg: '#e9ecf2',
+    viewportBg: '#e4ebf2',
     checkerLight: '#ffffff',
-    checkerDark: '#e2e6ee',
+    checkerDark: '#dfe7ef',
     paper: '#ffffff',
-    docBorder: 'rgba(15, 23, 42, 0.28)',
+    docBorder: 'rgba(15, 42, 66, 0.28)',
   },
 };
 
@@ -48,8 +64,108 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+/** Stable key for caching, matching `adjustmentKey` and `curvesKey`. */
+export function focusKey(focus?: FocusEffect): string {
+  if (isFocusNeutral(focus) || !focus) return '';
+  return [
+    focus.mode,
+    focus.amount,
+    focus.feather.toFixed(4),
+    focus.invert ? 1 : 0,
+    focus.centreX.toFixed(4),
+    focus.centreY.toFixed(4),
+    focus.size.toFixed(4),
+    focus.aspect.toFixed(3),
+    focus.angle,
+    focus.plane.toFixed(4),
+    focus.maskDataUrl?.length ?? 0,
+  ].join(',');
+}
+
+/** Stable key for caching, matching the other `*Key` helpers. */
+export function localKey(local?: LocalAdjustment): string {
+  if (isLocalNeutral(local) || !local) return '';
+  const values = (Object.keys(local.adjustments) as Array<keyof Adjustments>)
+    .sort()
+    .map((name) => `${name}:${local.adjustments[name]}`)
+    .join(',');
+  return `${local.amount.toFixed(3)}|${local.maskDataUrl.length}|${values}`;
+}
+
 /** Side of a transform handle, in screen pixels. */
 export const TRANSFORM_HANDLE = 10;
+
+/** Distance of the rotation grip above the box, in screen pixels. */
+export const ROTATE_HANDLE_OFFSET = 26;
+
+/** The eight scaling handles, as fractions of the box. */
+export type TransformHandle =
+  | 'nw'
+  | 'n'
+  | 'ne'
+  | 'e'
+  | 'se'
+  | 's'
+  | 'sw'
+  | 'w'
+  | 'rotate'
+  | 'move';
+
+export const SCALE_HANDLES: Array<{ id: TransformHandle; fx: number; fy: number }> = [
+  { id: 'nw', fx: 0, fy: 0 },
+  { id: 'n', fx: 0.5, fy: 0 },
+  { id: 'ne', fx: 1, fy: 0 },
+  { id: 'e', fx: 1, fy: 0.5 },
+  { id: 'se', fx: 1, fy: 1 },
+  { id: 's', fx: 0.5, fy: 1 },
+  { id: 'sw', fx: 0, fy: 1 },
+  { id: 'w', fx: 0, fy: 0.5 },
+];
+
+/**
+ * On-screen size of a layer once its scale is taken into account.
+ *
+ * Always positive: a mirrored layer carries a negative scale, but it still
+ * occupies a box of the same size, and a negative width would put every handle
+ * on the wrong side of the picture.
+ */
+export function layerBoxSize(
+  layer: LayerNode,
+  doc: NabuDocument
+): { width: number; height: number } {
+  return {
+    width: Math.abs((layer.width ?? doc.width) * (layer.transform.scaleX || 1)),
+    height: Math.abs((layer.height ?? doc.height) * (layer.transform.scaleY || 1)),
+  };
+}
+
+/**
+ * Turns a document point into a position inside the layer's own unrotated box.
+ *
+ * Hit-testing a rotated box is the same problem as hit-testing an upright one,
+ * once the point has been rotated back — doing it this way keeps a single set
+ * of handle positions instead of one per angle.
+ */
+export function toLayerBox(
+  point: { x: number; y: number },
+  layer: LayerNode,
+  doc: NabuDocument
+): { x: number; y: number } {
+  const { width, height } = layerBoxSize(layer, doc);
+  const centreX = layer.transform.x + width / 2;
+  const centreY = layer.transform.y + height / 2;
+
+  const angle = -(layer.transform.rotation || 0);
+  const dx = point.x - centreX;
+  const dy = point.y - centreY;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+
+  return {
+    x: dx * cos - dy * sin + width / 2,
+    y: dx * sin + dy * cos + height / 2,
+  };
+}
 
 /** Maps the document blend mode to a Canvas 2D globalCompositeOperation. */
 function mapBlendMode(blendMode: BlendMode): GlobalCompositeOperation {
@@ -103,9 +219,31 @@ export function paintLayers(
     ctx.globalAlpha = layer.opacity;
     ctx.globalCompositeOperation = mapBlendMode(layer.blendMode);
 
-    ctx.translate(layer.transform.x, layer.transform.y);
-    if (layer.transform.rotation !== 0) ctx.rotate(layer.transform.rotation);
-    ctx.scale(layer.transform.scaleX || 1, layer.transform.scaleY || 1);
+    // Rotation pivots on the centre of the layer, not on its corner: turning
+    // something should spin it in place, which is also what the handles in the
+    // viewport promise.
+    const scaleX = layer.transform.scaleX || 1;
+    const scaleY = layer.transform.scaleY || 1;
+    const naturalWidth = layer.width ?? doc.width;
+    const naturalHeight = layer.height ?? doc.height;
+    const boxWidth = Math.abs(naturalWidth * scaleX);
+    const boxHeight = Math.abs(naturalHeight * scaleY);
+
+    if (layer.transform.rotation) {
+      ctx.translate(layer.transform.x + boxWidth / 2, layer.transform.y + boxHeight / 2);
+      ctx.rotate(layer.transform.rotation);
+      ctx.translate(-boxWidth / 2, -boxHeight / 2);
+    } else {
+      ctx.translate(layer.transform.x, layer.transform.y);
+    }
+
+    ctx.scale(scaleX, scaleY);
+    // A negative scale mirrors the drawing about the origin, which would send
+    // it off to the other side; shifting by one layer width brings it back
+    // into the box it is supposed to fill, flipped.
+    if (scaleX < 0 || scaleY < 0) {
+      ctx.translate(scaleX < 0 ? -naturalWidth : 0, scaleY < 0 ? -naturalHeight : 0);
+    }
 
     if (layer.imageDataUrl) {
       const img = resolveImage(layer.imageDataUrl);
@@ -150,13 +288,20 @@ export class RenderEngine {
   /** Half-width of the selection brush, in screen pixels. */
   private brushWidth = 26;
 
-  private adjuster = new AdjustmentProcessor();
+  private adjuster = sharedProcessor();
   /**
    * Processed layers, keyed by layer id. The signature guards against stale
    * results: re-running the shader on every frame would drop the frame rate
    * while panning, and reusing a stale one would ignore a moved slider.
    */
   private adjusted = new Map<string, { signature: string; canvas: HTMLCanvasElement }>();
+
+  /**
+   * Masks converted from brightness to alpha, keyed by source and size.
+   * The conversion reads every pixel, so doing it once per mask rather than
+   * once per frame is the difference between a live slider and a slideshow.
+   */
+  private maskAlpha = new Map<string, HTMLCanvasElement>();
 
   constructor(canvas: HTMLCanvasElement, onImageLoaded?: () => void) {
     this.canvas = canvas;
@@ -265,17 +410,95 @@ export class RenderEngine {
     height: number
   ): CanvasImageSource | null {
     const layer = doc.layers[layerId];
-    const key = adjustmentKey(layer?.adjustments);
-    if (!key || !layer?.adjustments) {
+    if (!layer) {
       this.adjusted.delete(layerId);
       return null;
     }
 
+    // Sliders and the chosen look collapse into one set of values before they
+    // reach the shader, so a filter costs no extra pass.
+    const adjustments = effectiveAdjustments(layer);
+    const curves = layer.curves;
+    const focus = layer.focus;
+    const flatCurves = areCurvesNeutral(curves);
+    const flatFocus = isFocusNeutral(focus);
+    if (!adjustments && flatCurves && flatFocus && isLocalNeutral(layer.local)) {
+      this.adjusted.delete(layerId);
+      return null;
+    }
+
+    // The mask goes through the same cache as any other image, so a frame
+    // drawn before it has decoded simply comes back unfocused and the load
+    // callback asks for another one.
+    const mask =
+      (focus?.mode === 'mask' || focus?.mode === 'depth') && focus.maskDataUrl
+        ? this.getImage(focus.maskDataUrl)
+        : null;
+
+    const local = isLocalNeutral(layer.local) ? undefined : layer.local;
+    const localMask = local ? this.getImage(local.maskDataUrl) : null;
+
+    const key = [
+      adjustmentKey(adjustments),
+      curvesKey(curves),
+      focusKey(focus),
+      mask ? 1 : 0,
+      localKey(local),
+      localMask ? 1 : 0,
+    ].join('#');
     const signature = `${layer.imageDataUrl?.length ?? 0}|${width}x${height}|${key}`;
     const cached = this.adjusted.get(layerId);
     if (cached && cached.signature === signature) return cached.canvas;
 
-    const canvas = this.adjuster.process(image, width, height, layer.adjustments);
+    // A bent curve or a focus effect on untouched sliders still has work to
+    // do, so the neutral set is passed rather than skipping the pass.
+    const base = adjustments ?? NEUTRAL_ADJUSTMENTS;
+    // Identifies the pixels, not the settings: the processor reuses its blurred
+    // copy across calls about the same image, which is what makes dragging a
+    // tilt-shift across a photograph feel live.
+    const pixelKey = `${layerId}|${layer.imageDataUrl?.length ?? 0}`;
+    let canvas = this.adjuster.process(
+      image,
+      width,
+      height,
+      base,
+      curves,
+      focus,
+      mask,
+      pixelKey
+    );
+
+    // A region is a second run of the same pipeline with the region's deltas
+    // added, composited back through the mask. Two passes rather than a shader
+    // that knows about regions: the pass is cached, and the alternative is
+    // sixteen more uniforms and two code paths that can disagree.
+    if (local && localMask) {
+      const boosted = { ...base };
+      for (const [name, value] of Object.entries(local.adjustments) as Array<
+        [keyof Adjustments, number]
+      >) {
+        const [min, max] = ADJUSTMENT_RANGES[name];
+        boosted[name] = Math.min(max, Math.max(min, boosted[name] + value * local.amount));
+      }
+
+      const region = this.adjuster.process(
+        image,
+        width,
+        height,
+        boosted,
+        curves,
+        focus,
+        mask,
+        pixelKey
+      );
+      const alpha = this.getMaskAlpha(local.maskDataUrl, localMask, width, height);
+
+      if (region && alpha) {
+        canvas =
+          compositeThroughMask(canvas ?? image, region, alpha, width, height) ?? canvas;
+      }
+    }
+
     if (!canvas) {
       this.adjusted.delete(layerId);
       return null;
@@ -283,6 +506,22 @@ export class RenderEngine {
 
     this.adjusted.set(layerId, { signature, canvas });
     return canvas;
+  }
+
+  /** Cached brightness-to-alpha conversion of a mask. */
+  private getMaskAlpha(
+    src: string,
+    image: HTMLImageElement,
+    width: number,
+    height: number
+  ): HTMLCanvasElement | null {
+    const key = `${src.length}|${width}x${height}`;
+    const cached = this.maskAlpha.get(key);
+    if (cached) return cached;
+
+    const built = alphaFromLuminance(image, width, height);
+    if (built) this.maskAlpha.set(key, built);
+    return built;
   }
 
   /** True when the GPU pipeline for adjustments is usable. */
@@ -301,41 +540,84 @@ export class RenderEngine {
     if (!layer) return;
 
     const { ctx } = this;
-    const width = (layer.width ?? doc.width) * (layer.transform.scaleX || 1);
-    const height = (layer.height ?? doc.height) * (layer.transform.scaleY || 1);
-    const { x, y } = layer.transform;
+    const { width, height } = layerBoxSize(layer, doc);
+    const { x, y, rotation } = layer.transform;
 
     ctx.save();
 
-    ctx.lineWidth = 1.5 / zoom;
-    ctx.strokeStyle = 'rgba(167, 139, 250, 0.9)';
-    ctx.strokeRect(x, y, width, height);
+    // Work in the box's own space, so every handle below is placed on an
+    // upright rectangle no matter how the layer is turned.
+    ctx.translate(x + width / 2, y + height / 2);
+    if (rotation) ctx.rotate(rotation);
+    ctx.translate(-width / 2, -height / 2);
+
+    // A hairline, not a frame. The box is there to say where the layer ends,
+    // and a heavy outline over a photograph reads as damage to the photograph.
+    ctx.lineWidth = 1 / zoom;
+    ctx.strokeStyle = 'rgba(91, 183, 220, 0.55)';
+    ctx.strokeRect(0, 0, width, height);
 
     const handle = TRANSFORM_HANDLE / zoom;
-    const corners: Array<[number, number]> = [
-      [x, y],
-      [x + width, y],
-      [x, y + height],
-      [x + width, y + height],
+    const arm = handle * 0.9;
+
+    // Corners are drawn as two short strokes meeting, the way a viewfinder
+    // marks its frame — the corner is *implied* rather than covered by a block
+    // of white sitting on the part of the picture you are trying to align.
+    ctx.lineWidth = 2 / zoom;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+    ctx.shadowBlur = 3 / zoom;
+
+    const corners: Array<[number, number, number, number]> = [
+      [0, 0, 1, 1],
+      [width, 0, -1, 1],
+      [0, height, 1, -1],
+      [width, height, -1, -1],
     ];
 
-    ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = 'rgba(139, 92, 246, 0.95)';
-    ctx.lineWidth = 1.5 / zoom;
-
-    for (const [cx, cy] of corners) {
+    for (const [cx, cy, dx, dy] of corners) {
       ctx.beginPath();
-      ctx.rect(cx - handle / 2, cy - handle / 2, handle, handle);
-      ctx.fill();
+      ctx.moveTo(cx + dx * arm, cy);
+      ctx.lineTo(cx, cy);
+      ctx.lineTo(cx, cy + dy * arm);
       ctx.stroke();
     }
 
-    // Centre grip: dragging the body would fight with the lasso, so moving is
-    // deliberately its own target.
+    // The edge handles stay grabbable but say almost nothing: a short tick on
+    // the line rather than another object placed over the image.
+    for (const { fx, fy } of SCALE_HANDLES) {
+      if (fx !== 0.5 && fy !== 0.5) continue;
+      const cx = fx * width;
+      const cy = fy * height;
+      const along = fx === 0.5 ? arm : 0;
+      const down = fy === 0.5 ? arm : 0;
+      ctx.beginPath();
+      ctx.moveTo(cx - along, cy - down);
+      ctx.lineTo(cx + along, cy + down);
+      ctx.stroke();
+    }
+
+    // Rotation grip, on a short stem above the top edge: the classic position,
+    // and far enough out that it never overlaps the corners.
+    const stem = ROTATE_HANDLE_OFFSET / zoom;
+    ctx.lineWidth = 1 / zoom;
+    ctx.strokeStyle = 'rgba(91, 183, 220, 0.55)';
+    ctx.shadowBlur = 0;
     ctx.beginPath();
-    ctx.arc(x + width / 2, y + height / 2, handle * 0.7, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(width / 2, 0);
+    ctx.lineTo(width / 2, -stem);
     ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(width / 2, -stem, handle * 0.4, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+    ctx.shadowBlur = 3 / zoom;
+    ctx.fill();
+
+    // No centre grip any more: with the transform tool on, the whole layer is
+    // the move target, so a dot in the middle of the picture bought nothing.
 
     ctx.restore();
   }
@@ -416,9 +698,9 @@ export class RenderEngine {
       // Three passes of decreasing width build a soft halo without needing a
       // blur filter, which is expensive at high zoom.
       const passes: Array<[number, string]> = [
-        [this.brushWidth * 2.0, 'rgba(167, 139, 250, 0.16)'],
-        [this.brushWidth * 1.2, 'rgba(167, 139, 250, 0.32)'],
-        [this.brushWidth * 0.5, 'rgba(233, 226, 255, 0.85)'],
+        [this.brushWidth * 2.0, 'rgba(91, 183, 220, 0.18)'],
+        [this.brushWidth * 1.2, 'rgba(91, 183, 220, 0.34)'],
+        [this.brushWidth * 0.5, 'rgba(222, 244, 252, 0.9)'],
       ];
 
       for (const [width, colour] of passes) {
@@ -432,7 +714,7 @@ export class RenderEngine {
       if (path.length === 1) {
         ctx.beginPath();
         ctx.arc(path[0].x, path[0].y, this.brushWidth / zoom, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(167, 139, 250, 0.32)';
+        ctx.fillStyle = 'rgba(91, 183, 220, 0.34)';
         ctx.fill();
       }
 
@@ -445,7 +727,7 @@ export class RenderEngine {
     trace();
     ctx.closePath();
 
-    ctx.fillStyle = 'rgba(167, 139, 250, 0.14)';
+    ctx.fillStyle = 'rgba(91, 183, 220, 0.16)';
     ctx.fill();
 
     ctx.lineWidth = 1.5 / zoom;
@@ -474,11 +756,17 @@ export async function exportDocumentToPng(
   const ctx = out.getContext('2d');
   if (!ctx) throw new Error('Impossibile creare il canvas di esportazione');
 
-  // Preload every image needed: an export must never be partial.
+  // Preload every image needed: an export must never be partial. Focus masks
+  // count — a missing one would silently export the photo without the blur it
+  // was showing on screen.
   const sources = Array.from(
     new Set(
       doc.rootLayerIds
-        .map((id) => doc.layers[id]?.imageDataUrl)
+        .flatMap((id) => [
+          doc.layers[id]?.imageDataUrl,
+          doc.layers[id]?.focus?.maskDataUrl,
+          doc.layers[id]?.local?.maskDataUrl,
+        ])
         .filter((src): src is string => Boolean(src))
     )
   );
@@ -495,8 +783,8 @@ export async function exportDocumentToPng(
   );
 
   // The exported file must match what is on screen, so the same adjustment
-  // pipeline runs here too.
-  const adjuster = new AdjustmentProcessor();
+  // pipeline runs here too — filter and curves included.
+  const adjuster = sharedProcessor();
 
   paintLayers(
     ctx,
@@ -505,8 +793,54 @@ export async function exportDocumentToPng(
     (src) => resolved.get(src) ?? null,
     (layerId, image, width, height) => {
       const layer = doc.layers[layerId];
-      if (!layer?.adjustments) return null;
-      return adjuster.process(image, width, height, layer.adjustments);
+      if (!layer) return null;
+
+      const adjustments = effectiveAdjustments(layer);
+      const local = isLocalNeutral(layer.local) ? undefined : layer.local;
+      const flat = areCurvesNeutral(layer.curves) && isFocusNeutral(layer.focus) && !local;
+      if (!adjustments && flat) return null;
+
+      const base = adjustments ?? NEUTRAL_ADJUSTMENTS;
+      const focusMask = layer.focus?.maskDataUrl
+        ? (resolved.get(layer.focus.maskDataUrl) ?? null)
+        : null;
+
+      const canvas = adjuster.process(
+        image,
+        width,
+        height,
+        base,
+        layer.curves,
+        layer.focus,
+        focusMask
+      );
+
+      // The export has to see the same regions the screen does, or the saved
+      // file is a different photograph from the one that was approved.
+      const localMask = local ? resolved.get(local.maskDataUrl) : undefined;
+      if (!local || !localMask) return canvas;
+
+      const boosted = { ...base };
+      for (const [name, value] of Object.entries(local.adjustments) as Array<
+        [keyof Adjustments, number]
+      >) {
+        const [min, max] = ADJUSTMENT_RANGES[name];
+        boosted[name] = Math.min(max, Math.max(min, boosted[name] + value * local.amount));
+      }
+
+      const region = adjuster.process(
+        image,
+        width,
+        height,
+        boosted,
+        layer.curves,
+        layer.focus,
+        focusMask
+      );
+      const alpha = alphaFromLuminance(localMask, width, height);
+      if (!region || !alpha) return canvas;
+
+      return compositeThroughMask(canvas ?? image, region, alpha, width, height) ?? canvas;
     }
   );
 

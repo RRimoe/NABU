@@ -4,34 +4,45 @@
 /*
  * Theming: every colour goes through a variable redefined on [data-theme].
  * The default (no attribute) stays dark, so there is no flash on first paint.
+ *
+ * The palette is the logo's, measured off the mark itself rather than picked to
+ * match it by eye: #1f548d deep, #247faa mid, #259dbd teal, #5bb7dc light. The
+ * greys carry a trace of the same blue, which is what stops an accent from
+ * looking stuck onto a neutral interface.
  */
 :root,
 :root[data-theme='dark'] {
-  --bg-dark: #0a0a0c;
-  --bg-panel: #141418;
-  --bg-panel-header: #191920;
-  --bg-card: #1c1c22;
-  --bg-hover: #26262f;
-  --border-color: rgba(255, 255, 255, 0.08);
+  --bg-dark: #090b0f;
+  --bg-panel: #12151b;
+  --bg-panel-header: #171b23;
+  --bg-card: #1a1f28;
+  --bg-hover: #242b37;
+  --border-color: rgba(180, 214, 232, 0.10);
 
-  --accent: #a78bfa;
-  --accent-strong: #8b5cf6;
-  --accent-wash: rgba(139, 92, 246, 0.16);
-  --accent-border: rgba(167, 139, 250, 0.45);
+  --accent: #5bb7dc;
+  --accent-strong: #259dbd;
+  --accent-wash: rgba(91, 183, 220, 0.16);
+  --accent-border: rgba(91, 183, 220, 0.45);
 
-  --popover-bg: rgba(28, 28, 34, 0.92);
-  --popover-border: rgba(255, 255, 255, 0.1);
+  --popover-bg: rgba(23, 28, 36, 0.93);
+  --popover-border: rgba(180, 214, 232, 0.13);
 
-  --text-main: #f2f3f7;
-  --text-muted: #9aa1b1;
-  --text-dim: #646b7c;
-  --on-accent: #ffffff;
+  --text-main: #eef4f8;
+  --text-muted: #9aa8b6;
+  --text-dim: #63707f;
+  /*
+   * Dark ink on the accent, not white. The dark theme's accent is the *light*
+   * end of the palette, so white on it measures 2.3:1 — unreadable. The deep
+   * navy from the same logo measures 9.2:1.
+   */
+  --on-accent: #06202e;
 
   --danger-wash: rgba(239, 68, 68, 0.15);
   --danger-text: #f87171;
 
-  --gradient-ai: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 50%, #ec4899 100%);
-  --shadow-glow: 0 0 18px rgba(139, 92, 246, 0.28);
+  /* The mark's own three blues, in the order they appear on the dragon. */
+  --gradient-ai: linear-gradient(135deg, #1f548d 0%, #259dbd 55%, #5bb7dc 100%);
+  --shadow-glow: 0 0 18px rgba(37, 157, 189, 0.32);
 
   /* Aliases kept for the model manager styles */
   --accent-cyan: var(--accent);
@@ -45,32 +56,37 @@
 }
 
 :root[data-theme='light'] {
-  --bg-dark: #eef0f5;
+  --bg-dark: #e9eef4;
   --bg-panel: #ffffff;
-  --bg-panel-header: #f6f8fb;
-  --bg-card: #eef1f7;
-  --bg-hover: #e1e6f0;
-  --border-color: rgba(15, 23, 42, 0.1);
+  --bg-panel-header: #f4f8fb;
+  --bg-card: #eaf0f6;
+  --bg-hover: #dde7f0;
+  --border-color: rgba(15, 42, 66, 0.11);
 
-  /* Darkened accent: the dark-theme one fails contrast on a light background. */
-  --accent: #6d28d9;
-  --accent-strong: #5b21b6;
-  --accent-wash: rgba(109, 40, 217, 0.11);
-  --accent-border: rgba(109, 40, 217, 0.4);
+  /*
+   * The deep end of the logo, not the teal. #247faa is the prettier blue and
+   * measures 4.48:1 on white — a hair under the 4.5 threshold, so it is wrong
+   * for text however good it looks. #1f548d measures 7.75:1.
+   */
+  --accent: #1f548d;
+  --accent-strong: #16406e;
+  --accent-wash: rgba(31, 84, 141, 0.10);
+  --accent-border: rgba(31, 84, 141, 0.38);
 
   --popover-bg: rgba(255, 255, 255, 0.94);
-  --popover-border: rgba(15, 23, 42, 0.12);
+  --popover-border: rgba(15, 42, 66, 0.13);
 
-  --text-main: #0f172a;
-  --text-muted: #4a5568;
-  --text-dim: #94a3b8;
+  --text-main: #0d1b2a;
+  --text-muted: #45566a;
+  --text-dim: #8ea1b3;
+  /* Here the accent is the dark end, so white is the readable ink: 7.75:1. */
   --on-accent: #ffffff;
 
   --danger-wash: rgba(220, 38, 38, 0.12);
   --danger-text: #dc2626;
 
-  --gradient-ai: linear-gradient(135deg, #6d28d9 0%, #8b5cf6 50%, #db2777 100%);
-  --shadow-glow: 0 0 14px rgba(109, 40, 217, 0.2);
+  --gradient-ai: linear-gradient(135deg, #1f548d 0%, #247faa 55%, #5bb7dc 100%);
+  --shadow-glow: 0 0 14px rgba(31, 84, 141, 0.22);
 }
 
 * {
@@ -103,14 +119,146 @@ body, html, #root {
 .nabu-app {
   display: grid;
   grid-template-columns: auto 1fr auto;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: auto 1fr auto;
   grid-template-areas:
-    'rail stage panels'
+    'top top top'
+    'rail stage dock'
     'status status status';
   width: 100vw;
   height: 100vh;
   background: var(--bg-dark);
   overflow: hidden;
+}
+
+/* ===== Title bar ===== */
+.nabu-topbar {
+  grid-area: top;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 12px 14px 4px;
+}
+
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 6px;
+}
+
+/* The one place the application says what it has worked out about the photo.
+   It replaced the prompt box, so it has to read as information, not as a
+   control: no border, no hover, nothing to click. */
+.scene-chip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  justify-self: center;
+  padding: 7px 16px 7px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.scene-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.scene-chip.ready { color: var(--text-main); }
+.scene-chip.ready .scene-dot {
+  background: var(--accent);
+  box-shadow: var(--shadow-glow);
+}
+
+.scene-chip.busy { color: var(--text-main); }
+.scene-chip.busy .scene-dot {
+  background: var(--accent);
+  animation: busy-pulse 1.3s ease-in-out infinite;
+}
+
+.topbar-actions {
+  position: relative;
+  display: flex;
+  gap: 4px;
+  justify-self: end;
+}
+
+.topbar-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.16s ease, border-color 0.16s ease;
+}
+
+.topbar-icon:hover,
+.topbar-icon.on {
+  border-color: var(--accent-border);
+  color: var(--text-main);
+}
+
+.topbar-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  min-width: 218px;
+  padding: 6px;
+  background: var(--popover-bg);
+  border: 1px solid var(--popover-border);
+  border-radius: 12px;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(14px);
+}
+
+.topbar-menu button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.topbar-menu button span { flex: 1; }
+
+.topbar-menu button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-main);
+}
+
+.topbar-menu button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.topbar-menu kbd {
+  font-family: inherit;
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+
+.topbar-menu-sep {
+  height: 1px;
+  margin: 5px 4px;
+  background: var(--border-color);
 }
 
 /* --- Side rail --- */
@@ -120,7 +268,7 @@ body, html, #root {
   flex-direction: column;
   align-items: center;
   width: 92px;
-  padding: 20px 8px 14px;
+  padding: 10px 8px 14px;
   background: var(--bg-dark);
 }
 
@@ -132,13 +280,7 @@ body, html, #root {
   padding-left: 8px;
 }
 
-.rail-logo {
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  border: 1.5px solid var(--text-main);
-}
-
+/* The circle that used to stand in for the mark is gone: the mark exists now. */
 .rail-wordmark {
   font-size: 13px;
   font-weight: 700;
@@ -149,9 +291,12 @@ body, html, #root {
 .rail-items {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   width: 100%;
-  margin-top: 44px;
+  padding: 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
 }
 
 .rail-item {
@@ -177,9 +322,20 @@ body, html, #root {
   color: var(--text-main);
 }
 
+/* The active tool is filled, not merely tinted: at a glance you must be able to
+   tell which mode the canvas is in without reading anything. */
 .rail-item.active {
-  color: var(--text-main);
+  background: var(--accent);
+  color: var(--on-accent);
 }
+
+.rail-item.active:hover {
+  background: var(--accent-strong);
+  color: var(--on-accent);
+}
+
+.rail-item:disabled { opacity: 0.3; cursor: not-allowed; }
+.rail-item:disabled:hover { background: transparent; color: var(--text-muted); }
 
 .rail-item.accent {
   color: var(--accent);
@@ -217,11 +373,16 @@ body, html, #root {
 }
 
 /* --- Centre stage --- */
+/* `min-height: 0` is load-bearing. Without it a flex column refuses to shrink
+   below its content, so the moment the document tabs appear the stage grows,
+   the grid grows with it, and the status bar is pushed off the bottom of the
+   window. */
 .nabu-stage {
   grid-area: stage;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   padding: 10px 10px 0;
 }
 
@@ -249,6 +410,7 @@ body, html, #root {
 /* --- Document tabs --- */
 .nabu-tabs {
   display: flex;
+  flex-shrink: 0;
   gap: 4px;
   padding-bottom: 8px;
   overflow-x: auto;
@@ -533,16 +695,18 @@ body, html, #root {
   border-color: var(--accent-border);
 }
 
-/* --- Advanced panels --- */
-.nabu-panels {
-  grid-area: panels;
+/* --- Right dock: whatever the rail last asked for, plus the Tab panels --- */
+.nabu-dock {
+  grid-area: dock;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: 320px;
+  width: 336px;
+  min-height: 0;
   padding: 10px 10px 0 0;
   overflow-y: auto;
 }
+
 
 .side-panel {
   display: flex;
@@ -629,15 +793,23 @@ body, html, #root {
 }
 
 /* --- Status bar --- */
+/* Three tracks rather than space-between: the scan button has to sit on the
+   centre of the window, not on the centre of whatever is left over. */
+/* The round button deliberately pokes out of the top of this bar, so the bar
+   has to be painted above the stage — otherwise the canvas clips the part that
+   sticks out and the circle arrives with a flat top. */
 .nabu-status {
   grid-area: status;
-  display: flex;
+  position: relative;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
-  height: 38px;
+  height: 44px;
   padding: 0 16px;
   font-size: 11px;
   color: var(--text-dim);
+  background: var(--bg-dark);
 }
 
 .status-left {
@@ -656,6 +828,7 @@ body, html, #root {
 .status-right {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -1046,20 +1219,41 @@ body, html, #root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  /* Lifted: the prompt occupies the lower area. */
-  margin-bottom: 120px;
+  gap: 12px;
+  /* Lifted a little off centre: dead centre reads as a loading screen. */
+  margin-bottom: 60px;
   color: var(--text-dim);
   text-align: center;
 }
 
+.empty-logo {
+  margin-bottom: 6px;
+  /* Held back from full strength, so it invites rather than announces. */
+  opacity: 0.9;
+  filter: drop-shadow(0 8px 22px rgba(31, 84, 141, 0.28));
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.nabu-empty:hover .empty-logo {
+  opacity: 1;
+  transform: translateY(-2px);
+}
+
+.nabu-empty.dragging .empty-logo {
+  opacity: 1;
+  transform: scale(1.04);
+}
+
 .empty-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text-muted);
 }
 
 .empty-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
 }
 
@@ -1346,8 +1540,8 @@ body, html, #root {
   background: linear-gradient(
     100deg,
     transparent 30%,
-    rgba(167, 139, 250, 0.14) 48%,
-    rgba(233, 226, 255, 0.2) 52%,
+    rgba(91, 183, 220, 0.16) 48%,
+    rgba(222, 244, 252, 0.22) 52%,
     transparent 70%
   );
   background-size: 260% 100%;
@@ -1668,3 +1862,1079 @@ body, html, #root {
 }
 
 .resize-apply:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ===== Selection shape, in the status bar ===== */
+.status-shapes {
+  display: flex;
+  gap: 1px;
+  padding: 2px;
+  background: var(--bg-card);
+  border-radius: 8px;
+}
+
+.status-shapes .status-btn {
+  width: 26px;
+  height: 24px;
+}
+
+/* ===== Free transform: contextual bar over the canvas ===== */
+.transform-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 84px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  background: var(--popover-bg);
+  border: 1px solid var(--popover-border);
+  border-radius: 12px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(14px);
+  transform: translateX(-50%);
+  animation: bubble-in 0.16s ease-out;
+}
+
+.transform-readout {
+  padding: 0 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.transform-readout.dim {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.transform-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border-color);
+}
+
+.transform-bar button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 9px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.transform-bar button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-main);
+}
+
+.transform-bar button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.transform-done {
+  color: var(--accent) !important;
+  background: var(--accent-wash) !important;
+  font-weight: 600;
+}
+
+/* ===== Filters ===== */
+.filters-panel {
+  flex: 1 1 auto;
+  min-height: 260px;
+}
+
+.filters-panel .side-panel-header { position: relative; }
+
+.filters-panel .bubble-dismiss {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.filters-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 10px 12px 12px;
+  overflow-y: auto;
+}
+
+.filters-group { margin-top: 12px; }
+
+.filters-group-title {
+  margin-bottom: 7px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.filters-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.filter-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* The thumbnail carries a placeholder tint until its render arrives, so the
+   grid never collapses and then jumps as the previews land. */
+.filter-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: var(--bg-card);
+  border: 2px solid transparent;
+  border-radius: 9px;
+  overflow: hidden;
+  transition: border-color 0.16s ease;
+}
+
+.filter-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.filter-tile:hover .filter-thumb { border-color: var(--border-color); }
+
+.filter-tile.on .filter-thumb {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-glow);
+}
+
+.filter-tile.on .filter-name {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.filter-name {
+  font-size: 10.5px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.filters-strength {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-color);
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.filters-strength input {
+  flex: 1;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.filters-strength-value {
+  width: 34px;
+  text-align: right;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== Tone curves ===== */
+.curves-panel { padding: 10px 12px 12px; }
+
+.curves-tabs {
+  display: flex;
+  gap: 3px;
+  margin-bottom: 9px;
+  padding: 2px;
+  background: var(--bg-card);
+  border-radius: 8px;
+}
+
+.curves-tab {
+  flex: 1;
+  padding: 5px 0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+}
+
+.curves-tab:hover { color: var(--text-main); }
+
+.curves-tab.on {
+  background: var(--bg-panel-header);
+  color: var(--channel-colour);
+  box-shadow: inset 0 0 0 1px var(--border-color);
+}
+
+/* A dot marks a channel that has been bent, so a correction left on the red
+   curve cannot hide behind the RGB tab. */
+.curves-tab.bent::after {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--channel-colour);
+  vertical-align: middle;
+}
+
+.curves-graph {
+  display: block;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.curves-hint {
+  margin: 7px 0 9px;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.curves-actions { display: flex; gap: 6px; }
+
+.curves-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 1;
+  padding: 7px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.curves-actions button:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  color: var(--text-main);
+}
+
+.curves-actions button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ===== Suggestions: what replaced the prompt ===== */
+.suggestions-panel { padding-bottom: 8px; }
+
+.suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 11px 4px;
+}
+
+.suggestion-card {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 9px;
+  background: var(--bg-card);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.suggestion-card:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--accent-border);
+}
+
+.suggestion-card:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.suggestion-thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 46px;
+  height: 46px;
+  background: var(--bg-panel-header);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.suggestion-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* An operation cannot be previewed without running the model, so its tile
+   carries a mark saying what it would do instead of pretending to show it. */
+.suggestion-thumb-badge {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: var(--accent);
+  border-radius: 6px;
+  color: var(--on-accent);
+}
+
+.suggestion-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.suggestion-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.suggestion-detail {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.suggestion-apply {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  color: var(--text-dim);
+  transition: color 0.16s ease, border-color 0.16s ease;
+}
+
+.suggestion-card:hover:not(:disabled) .suggestion-apply {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.suggestion-card.needs-model .suggestion-detail { color: var(--text-dim); }
+
+.suggestions-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: calc(100% - 22px);
+  margin: 4px 11px 0;
+  padding: 9px 11px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border-color);
+  border-radius: 0;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.suggestions-more:hover { color: var(--text-main); }
+.suggestions-more .flipped { transform: rotate(180deg); }
+
+.suggestions-empty,
+.suggestions-note {
+  padding: 12px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+/* ===== Contextual actions on a selection ===== */
+.nabu-actionbar {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 6px;
+  background: var(--popover-bg);
+  border: 1px solid var(--popover-border);
+  border-radius: 14px;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(14px);
+  transform: translateX(-50%);
+  animation: bubble-in 0.16s ease-out;
+}
+
+.nabu-actionbar button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 13px;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.nabu-actionbar button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-main);
+}
+
+.nabu-actionbar button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.nabu-actionbar .action-primary {
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.action-sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 3px;
+  background: var(--border-color);
+}
+
+.action-dismiss { padding: 9px !important; }
+
+/* ===== Crop ===== */
+.crop-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+}
+
+.crop-shade {
+  position: absolute;
+  background: rgba(6, 6, 10, 0.62);
+}
+
+:root[data-theme='light'] .crop-shade {
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.crop-frame {
+  position: absolute;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85);
+  cursor: move;
+}
+
+.crop-third {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.28);
+  pointer-events: none;
+}
+
+.crop-third.v { top: 0; bottom: 0; width: 1px; }
+.crop-third.h { left: 0; right: 0; height: 1px; }
+
+.crop-grip {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.45);
+  border-radius: 3px;
+}
+
+.crop-grip.nw, .crop-grip.se { cursor: nwse-resize; }
+.crop-grip.ne, .crop-grip.sw { cursor: nesw-resize; }
+.crop-grip.n, .crop-grip.s { cursor: ns-resize; }
+.crop-grip.e, .crop-grip.w { cursor: ew-resize; }
+
+.crop-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 6px;
+  background: var(--popover-bg);
+  border: 1px solid var(--popover-border);
+  border-radius: 14px;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(14px);
+  transform: translateX(-50%);
+}
+
+.crop-readout {
+  padding: 0 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.crop-bar button {
+  padding: 7px 11px;
+  background: transparent;
+  border: none;
+  border-radius: 9px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.crop-bar button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-main);
+}
+
+.crop-bar button.on {
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.crop-apply {
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent) !important;
+  color: var(--on-accent) !important;
+  font-weight: 600;
+}
+
+.crop-apply:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ===== Status bar additions ===== */
+.status-models {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.status-models:hover {
+  border-color: var(--border-color);
+  color: var(--text-main);
+}
+
+.status-led {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.status-led.on { background: #4ade80; }
+.status-led.idle { background: #fbbf24; }
+.status-led.off { background: var(--text-dim); }
+
+/* Reading the photo again. The only round control in the application, in the
+   only spot where nothing else competes for attention. */
+.status-scan {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  margin: -14px auto 0;
+  background: var(--accent);
+  border: 3px solid var(--bg-dark);
+  border-radius: 50%;
+  color: var(--on-accent);
+  cursor: pointer;
+  box-shadow: var(--shadow-glow);
+  transition: transform 0.16s ease;
+}
+
+/* The dragon is taller than it is wide and reads as off-centre when its box is
+   centred, so it is nudged and given a hair of breathing room. */
+.status-scan img {
+  pointer-events: none;
+  margin-left: 1px;
+}
+
+.status-scan:hover:not(:disabled) { transform: scale(1.06); }
+.status-scan:disabled { opacity: 0.5; cursor: not-allowed; }
+.status-scan.busy { animation: busy-pulse 1.3s ease-in-out infinite; }
+
+.status-dimensions {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The resize popover is anchored to the status bar by default; opened from the
+   menu it has nothing to hang off, so it is centred instead. */
+.resize-centred { position: relative; }
+
+.resize-centred .resize-popover {
+  position: static;
+  width: 300px;
+}
+
+/* ===== Selective focus ===== */
+.focus-panel { padding: 10px 12px 12px; }
+
+.focus-modes {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.focus-mode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  padding: 9px 4px;
+  background: var(--bg-card);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+.focus-mode:hover:not(:disabled) {
+  border-color: var(--border-color);
+  color: var(--text-main);
+}
+
+.focus-mode.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.focus-mode:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.focus-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 4px 2px 2px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.focus-invert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.focus-invert input { accent-color: var(--accent); cursor: pointer; }
+
+/* --- The guide drawn over the photo --- */
+.focus-guide {
+  position: absolute;
+  z-index: 5;
+  width: 0;
+  height: 0;
+}
+
+.focus-band {
+  position: absolute;
+  /* Wide enough that the lines always run past the edge of the viewport,
+     whatever angle they are turned to. */
+  width: 400vw;
+  height: 0;
+  /* Only the lines themselves take the pointer; the empty space between them
+     belongs to the canvas underneath. */
+  pointer-events: none;
+}
+
+/* The line you can see is the line you grab — one fewer thing to explain than
+   a separate dot on it. A hairline is impossible to hit with a mouse, so each
+   carries an invisible band, and says what it does through the cursor. */
+.focus-line {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  background: rgba(91, 183, 220, 0.92);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.focus-line.soft {
+  background: rgba(91, 183, 220, 0.34);
+}
+
+.focus-line.grab {
+  pointer-events: auto;
+  cursor: ns-resize;
+}
+
+/* Widens the target without widening the line. A border would have changed the
+   element's own box and moved the 1px that has to stay exactly where the
+   shader's edge is; a pseudo-element adds hit area and no geometry. */
+.focus-line.grab::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -7px;
+  bottom: -7px;
+}
+
+.focus-ellipse {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border: 1px solid rgba(91, 183, 220, 0.92);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.focus-ellipse.soft { border-color: rgba(91, 183, 220, 0.34); }
+
+/*
+ * The ellipse stays untouchable and gets small handles instead.
+ *
+ * There is no CSS that makes only the *ring* of a rounded box a hit target: an
+ * element with a transparent middle is still hit across its whole box, so a
+ * grabbable ellipse would swallow every click inside the sharp zone — which is
+ * exactly the part of the photograph the user is trying to look at. A band is
+ * different: its lines are thin strips with the canvas between them.
+ */
+.focus-grip {
+  position: absolute;
+  left: 0;
+  width: 13px;
+  height: 13px;
+  margin: -6.5px 0 0 -6.5px;
+  background: #ffffff;
+  border: 2px solid var(--accent-strong);
+  border-radius: 50%;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+  cursor: ns-resize;
+}
+
+.focus-grip.feather {
+  width: 11px;
+  height: 11px;
+  margin: -5.5px 0 0 -5.5px;
+  background: var(--accent-strong);
+  border-color: #ffffff;
+}
+
+.focus-guide.dragging .focus-grip { transform: scale(1.12); }
+.focus-guide.dragging .focus-line.grab { background: var(--accent); }
+
+.focus-centre {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  background: #ffffff;
+  border: 3px solid var(--accent-strong);
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  cursor: move;
+}
+
+.focus-guide.dragging .focus-centre { transform: scale(1.1); }
+
+/* ===== Blend: making a pasted piece belong ===== */
+.transform-blend {
+  color: var(--accent) !important;
+  font-weight: 600;
+}
+
+.transform-blend.on { background: var(--accent-wash) !important; }
+
+.blend-popover {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  width: 274px;
+  padding: 13px;
+  background: var(--popover-bg);
+  border: 1px solid var(--popover-border);
+  border-radius: 13px;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(14px);
+  transform: translateX(-50%);
+  cursor: default;
+}
+
+.blend-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.blend-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 9px 0 10px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.blend-note svg { flex-shrink: 0; margin-top: 1px; }
+
+.blend-apply {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  padding: 9px;
+  background: var(--accent);
+  border: none;
+  border-radius: 9px;
+  color: var(--on-accent);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.blend-apply:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ===== The model's reading of the photo ===== */
+.advice-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 22px);
+  margin: 10px 11px 0;
+  padding: 10px;
+  background: var(--accent-wash);
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.advice-card:hover:not(:disabled) { border-color: var(--accent); }
+.advice-card:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.advice-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  background: var(--accent);
+  border-radius: 8px;
+  color: var(--on-accent);
+}
+
+.advice-observation {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-main);
+}
+
+.advice-action {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.advice-thinking {
+  padding: 12px 12px 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* The round button changes what it means once there is something to do. */
+.status-scan.ready {
+  background: var(--gradient-ai);
+}
+
+/* ===== Semantic action bar ===== */
+.action-subject {
+  padding: 0 8px 0 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: lowercase;
+}
+
+/* ===== The offer to paste, in the photo it would land in ===== */
+.paste-chip {
+  position: absolute;
+  left: 50%;
+  top: 18px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 10px;
+  background: var(--popover-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 14px;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(14px);
+  transform: translateX(-50%);
+  animation: bubble-in 0.18s ease-out;
+}
+
+.paste-chip img {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  background: var(--bg-card);
+  border-radius: 8px;
+}
+
+.paste-chip-text { display: flex; flex-direction: column; gap: 1px; }
+
+.paste-chip-title { font-size: 12px; font-weight: 600; color: var(--text-main); }
+
+.paste-chip-name {
+  max-width: 160px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.paste-chip-go {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--accent);
+  border: none;
+  border-radius: 9px;
+  color: var(--on-accent);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.paste-chip-go:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.paste-chip-dismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.paste-chip-dismiss:hover { background: var(--bg-hover); color: var(--text-main); }
+
+/* ===== Navigator: where you are in a photo bigger than the window ===== */
+.navigator { padding: 10px 12px 12px; }
+
+/* Width from the panel, height from the photo's own proportions, which arrive
+   as an inline `aspect-ratio`. A square photo therefore gets a square map. */
+.navigator-map {
+  position: relative;
+  width: 100%;
+  margin: 0 auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+.navigator-map:active { cursor: grabbing; }
+
+/* The backing store is sized in code for crispness; the box always fills the
+   map, so the shape is right from the very first paint rather than after an
+   async effect has had a chance to run. */
+.navigator-map canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.navigator-map canvas.ready { opacity: 1; }
+
+/* Two strokes rather than one: a light box vanishes on a bright photo and a
+   dark one vanishes on a dark photo, so it carries both. */
+.navigator-view {
+  position: absolute;
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.navigator-hint {
+  margin-top: 8px;
+  font-size: 10.5px;
+  text-align: center;
+  color: var(--text-dim);
+}

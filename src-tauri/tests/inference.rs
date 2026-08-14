@@ -187,6 +187,165 @@ fn fixed_input_upscaling_quadruples_the_resolution() {
     assert_eq!(center[3], 255, "alpha lost");
 }
 
+/// Every installed vision model, loaded exactly as the application loads it:
+/// the manifest decides whether the accelerator is offered (`cpuOnly`), and
+/// one real inference must succeed. This is the test that caught LaMa's
+/// Fourier convolutions failing on DirectML with "parametro non corretto" —
+/// an operator the provider accepts at load time and rejects at run time,
+/// which no load-only check can see.
+#[test]
+#[ignore = "requires the models on disk"]
+fn vision_models_run_the_way_the_application_loads_them() {
+    use nabu_lib::ai::vision::manifest::ModelManifest;
+
+    let models = std::path::PathBuf::from(std::env::var("APPDATA").expect("APPDATA"))
+        .join("com.editor.nabu/models");
+
+    let source = test_image(512);
+
+    // Detector.
+    let dfine = models.join("dfine-nano/model.onnx");
+    if dfine.is_file() {
+        let manifest =
+            ModelManifest::parse(include_str!("../manifests/dfine-nano.json")).expect("manifest");
+        let mut session =
+            nabu_lib::ai::engine::build_session(&dfine, manifest.cpu_only).expect("dfine session");
+        nabu_lib::ai::vision::detect::run(&mut session, &manifest, &source, &noop)
+            .expect("dfine inference");
+        println!("ok  dfine-nano (cpu_only={})", manifest.cpu_only);
+    }
+
+    // Segmenter.
+    let sam_dir = models.join("slimsam-77");
+    if sam_dir.join("vision_encoder.onnx").is_file() {
+        let manifest =
+            ModelManifest::parse(include_str!("../manifests/slimsam-77.json")).expect("manifest");
+        let mut encoder =
+            nabu_lib::ai::engine::build_session(&sam_dir.join("vision_encoder.onnx"), manifest.cpu_only)
+                .expect("sam encoder");
+        let mut decoder = nabu_lib::ai::engine::build_session(
+            &sam_dir.join("prompt_encoder_mask_decoder.onnx"),
+            manifest.cpu_only,
+        )
+        .expect("sam decoder");
+        tasks::segment_object(
+            &mut encoder,
+            &mut decoder,
+            &source,
+            tasks::BoxPrompt { x0: 120.0, y0: 120.0, x1: 392.0, y1: 392.0 },
+            &[],
+            &noop,
+        )
+        .expect("sam inference");
+        println!("ok  slimsam-77 (cpu_only={})", manifest.cpu_only);
+    }
+
+    // Inpainter — cpuOnly in its manifest, because of the DirectML failure.
+    let lama = models.join("lama-inpainting/big-lama.onnx");
+    if lama.is_file() {
+        let manifest = ModelManifest::parse(include_str!("../manifests/lama-inpainting.json"))
+            .expect("manifest");
+        assert!(manifest.cpu_only, "LaMa must stay off the GPU providers");
+        let mut session =
+            nabu_lib::ai::engine::build_session(&lama, manifest.cpu_only).expect("lama session");
+
+        let mut mask = image::GrayImage::new(512, 512);
+        for (x, y, px) in mask.enumerate_pixels_mut() {
+            let dx = x as f32 - 256.0;
+            let dy = y as f32 - 256.0;
+            px[0] = if dx * dx + dy * dy < 60.0 * 60.0 { 255 } else { 0 };
+        }
+        nabu_lib::ai::vision::inpaint::remove_region(&mut session, &manifest, &source, &mask, &noop)
+            .expect("lama inference");
+        println!("ok  lama-inpainting (cpu_only={})", manifest.cpu_only);
+    }
+}
+
+/// The full object-removal chain: segmenter (SlimSAM) makes the mask,
+/// inpainter (LaMa) rebuilds the background. Uses the models installed in the
+/// application folder, like the segmentation test below.
+///
+/// A red disc on a dark textured field, a box around it: afterwards the disc
+/// region must no longer be red, and the field outside must be untouched.
+#[test]
+#[ignore = "requires the SlimSAM and LaMa models on disk"]
+fn object_removal_rebuilds_the_background() {
+    let models = std::path::PathBuf::from(std::env::var("APPDATA").expect("APPDATA"))
+        .join("com.editor.nabu/models");
+    let sam_dir = models.join("slimsam-77");
+    let lama = models.join("lama-inpainting/big-lama.onnx");
+    if !sam_dir.join("vision_encoder.onnx").is_file() || !lama.is_file() {
+        eprintln!("models not downloaded, skipping");
+        return;
+    }
+
+    let mut encoder = open_session(&sam_dir.join("vision_encoder.onnx"));
+    let mut decoder = open_session(&sam_dir.join("prompt_encoder_mask_decoder.onnx"));
+    let mut inpainter = open_session(&lama);
+
+    // Dark field with mild texture, red disc left of centre.
+    let size = 512u32;
+    let mut source = RgbaImage::new(size, size);
+    for (x, y, px) in source.enumerate_pixels_mut() {
+        let dx = x as f32 - 170.0;
+        let dy = y as f32 - 256.0;
+        let base = 24 + ((x / 32 + y / 32) % 2) as u8 * 6;
+        *px = if dx * dx + dy * dy <= 70.0 * 70.0 {
+            Rgba([225, 60, 50, 255])
+        } else {
+            Rgba([base, base + 4, base + 10, 255])
+        };
+    }
+
+    let masked = tasks::segment_object(
+        &mut encoder,
+        &mut decoder,
+        &source,
+        tasks::BoxPrompt { x0: 80.0, y0: 165.0, x1: 260.0, y1: 350.0 },
+        &[],
+        &noop,
+    )
+    .expect("segmentation");
+
+    let mut mask = image::GrayImage::new(size, size);
+    for (x, y, px) in masked.enumerate_pixels() {
+        mask.put_pixel(x, y, image::Luma([px[3]]));
+    }
+
+    let manifest = nabu_lib::ai::vision::manifest::ModelManifest::parse(include_str!(
+        "../manifests/lama-inpainting.json"
+    ))
+    .expect("manifest");
+
+    let result = nabu_lib::ai::vision::inpaint::remove_region(
+        &mut inpainter,
+        &manifest,
+        &source,
+        &mask,
+        &noop,
+    )
+    .expect("inpainting");
+
+    assert_eq!(result.dimensions(), source.dimensions());
+
+    // Where the disc was: no longer red, roughly as dark as the field.
+    let centre = result.get_pixel(170, 256);
+    println!("centre after removal = {centre:?}");
+    assert!(
+        centre[0] < 120,
+        "the object survived removal: centre = {centre:?}"
+    );
+    assert!(
+        centre[0] < centre[2].saturating_add(40),
+        "still distinctly red: {centre:?}"
+    );
+
+    // Far from the mask the photo must be bit-identical.
+    let far = result.get_pixel(480, 30);
+    let src_far = source.get_pixel(480, 30);
+    assert_eq!(far, src_far, "untouched pixels were altered");
+}
+
 /// Detection smoke test on a synthetic image.
 ///
 /// A painted scene is not a photograph, so no specific class is asserted: what
@@ -256,7 +415,7 @@ fn segmentation_isolates_the_boxed_object() {
 
     // Box loosely around the disc only.
     let prompt = tasks::BoxPrompt { x0: 45.0, y0: 165.0, x1: 235.0, y1: 350.0 };
-    let result = tasks::segment_object(&mut encoder, &mut decoder, &source, prompt, &noop)
+    let result = tasks::segment_object(&mut encoder, &mut decoder, &source, prompt, &[], &noop)
         .expect("segmentation");
 
     assert_eq!(result.dimensions(), source.dimensions());

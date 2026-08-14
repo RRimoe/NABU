@@ -290,6 +290,7 @@ pub fn segment_object(
     decoder: &mut Session,
     source: &RgbaImage,
     prompt: BoxPrompt,
+    points: &[[f32; 2]],
     progress: ProgressFn<'_>,
 ) -> NabuResult<RgbaImage> {
     let (width, height) = source.dimensions();
@@ -363,24 +364,38 @@ pub fn segment_object(
     // answers with the inverse mask. Positive points, label 1, are the prompt
     // every SAM build understands, so the selection is expressed as a handful
     // of points inside it rather than as a rectangle.
-    let cx = (prompt.x0 + prompt.x1) / 2.0;
-    let cy = (prompt.y0 + prompt.y1) / 2.0;
-    let qx = (prompt.x1 - prompt.x0) / 4.0;
-    let qy = (prompt.y1 - prompt.y0) / 4.0;
+    //
+    // *Inside it* is the operative phrase. Points placed on the bounding box
+    // are not inside anything that is not roughly square: on a hand, a strap or
+    // any diagonal shape, the centre of the box lands on the background, and
+    // the segmenter then answers accurately about the wrong object. So when the
+    // caller drew an outline, the points come from the places furthest from
+    // that outline's border.
+    // Where those points come from is the engine's business, not this file's:
+    // the caller works them out from the shape the user drew and passes them
+    // in. With none supplied the box is all there is to go on.
+    let samples: Vec<(f32, f32)> = if points.is_empty() {
+        let cx = (prompt.x0 + prompt.x1) / 2.0;
+        let cy = (prompt.y0 + prompt.y1) / 2.0;
+        let qx = (prompt.x1 - prompt.x0) / 4.0;
+        let qy = (prompt.y1 - prompt.y0) / 4.0;
+        vec![
+            (cx, cy),
+            (cx - qx, cy),
+            (cx + qx, cy),
+            (cx, cy - qy),
+            (cx, cy + qy),
+        ]
+    } else {
+        points.iter().map(|point| (point[0], point[1])).collect()
+    };
 
-    // Centre plus four points half-way to the edges: one click can land on a
-    // window or a wheel and describe only that part, while several spread over
-    // the region push SAM towards the whole object.
-    let samples: [(f32, f32); 5] = [
-        (cx, cy),
-        (cx - qx, cy),
-        (cx + qx, cy),
-        (cx, cy - qy),
-        (cx, cy + qy),
-    ];
+    if samples.is_empty() {
+        return Err(error::inference_failed("the selection encloses nothing"));
+    }
 
     let mut points = Vec::with_capacity(samples.len() * 2);
-    for (x, y) in samples {
+    for (x, y) in &samples {
         points.push(x * scale);
         points.push(y * scale);
     }
@@ -449,6 +464,10 @@ pub fn segment_object(
     let cropped =
         image::imageops::crop_imm(&small, 0, 0, valid_w.max(1), valid_h.max(1)).to_image();
     let mask = image::imageops::resize(&cropped, width, height, FilterType::Triangle);
+
+    // Whether to believe this answer, and how far it is allowed to reach, is
+    // decided by the caller against the shape the user drew — see
+    // `vision::region::constrain`.
 
     let mut output = source.clone();
     for (x, y, pixel) in output.enumerate_pixels_mut() {

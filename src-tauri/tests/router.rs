@@ -20,17 +20,27 @@ mod router;
 #[path = "../src/ai/tools.rs"]
 mod tools;
 
+/// Which model to test, overridable so the same suite can judge a candidate:
+///     NABU_ROUTER_MODEL_DIR=... NABU_ROUTER_MODEL_FILE=... cargo test ...
 fn model_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("NABU_ROUTER_MODEL_DIR") {
+        return PathBuf::from(dir);
+    }
     PathBuf::from(std::env::var("APPDATA").expect("APPDATA"))
         .join("com.editor.nabu/models/qwen2.5-1.5b-instruct")
 }
 
-const MODEL_FILE: &str = "qwen2.5-1.5b-instruct-q4_k_m.gguf";
+fn model_file() -> String {
+    std::env::var("NABU_ROUTER_MODEL_FILE")
+        .unwrap_or_else(|_| "qwen2.5-1.5b-instruct-q4_k_m.gguf".to_string())
+}
+
 const NO_SELECTION: &str = "Nothing is selected; the request applies to the whole photo.";
 
 async fn ask(phrase: &str, context: &str) -> Option<tools::ToolCall> {
     let dir = model_dir();
-    if !dir.join(MODEL_FILE).is_file() {
+    let file = model_file();
+    if !dir.join(&file).is_file() {
         eprintln!("router model not downloaded, skipping");
         return None;
     }
@@ -39,7 +49,7 @@ async fn ask(phrase: &str, context: &str) -> Option<tools::ToolCall> {
     // processing the system prompt, later ones should reuse both. Without the
     // split it is impossible to tell "slow every time" from "slow once".
     let started = std::time::Instant::now();
-    match router::interpret(&dir.to_string_lossy(), MODEL_FILE, phrase, context).await {
+    match router::interpret(&dir.to_string_lossy(), &file, phrase, context).await {
         Ok(call) => {
             println!(
                 "  {:>6.1}s  {phrase:<34} -> {} {}",
@@ -136,6 +146,57 @@ SCENE — objects detected in the photo:\n\
             "wrong object for {phrase:?}"
         );
     }
+}
+
+#[tokio::test]
+#[ignore = "requires the llm feature and the router model on disk"]
+async fn an_impossible_request_is_reported_not_forced() {
+    // Replacing content is genuinely impossible: the honest answer is
+    // report_unsupported, not a shoehorned adjust.
+    let Some(call) = ask("change the sky", NO_SELECTION).await else { return };
+    assert_eq!(call.name, "report_unsupported");
+}
+
+/// Known limitation: asked to remove something when the context has no SCENE
+/// list at all, the 1.5B invents an object id instead of reporting the
+/// request as unsupported, despite an explicit rule. The system stays honest
+/// anyway — the interface looks the id up in the scene and answers with the
+/// honest message when nothing is there — so this documents the model, not a
+/// user-facing bug. Remove the attribute when a better model closes the gap.
+#[tokio::test]
+#[ignore = "known limitation of the 1.5B router"]
+async fn removal_without_a_scene_is_reported_unsupported() {
+    let Some(call) = ask("elimina il cartello giallo", NO_SELECTION).await else { return };
+    assert_eq!(call.name, "report_unsupported");
+}
+
+const REMOVAL_SCENE: &str = "Nothing is selected; the request applies to the whole photo.\n\n\
+SCENE — objects detected in the photo:\n\
+#1 car — left, secondary, color: blue\n\
+#2 person — right, dominant";
+
+#[tokio::test]
+#[ignore = "requires the llm feature and the router model on disk"]
+async fn removal_resolves_against_the_scene() {
+    // Removal is real now: with the object in the scene, "remove the man on
+    // the right" must reach remove_object with the right id — the phrase that
+    // used to be mistaken for background removal.
+    let Some(call) = ask("remove the man on the right", REMOVAL_SCENE).await else { return };
+    assert_eq!(call.name, "remove_object");
+    assert_eq!(call.arguments["id"].as_f64(), Some(2.0));
+}
+
+/// Known limitation: "elimina la macchina blu" lands on the dominant person
+/// rather than the blue car — cross-language grounding is where the 1.5B
+/// runs out. In practice the phrase never reaches the model: the keyword
+/// grounder in the interface resolves class and colour words deterministically
+/// first, so this documents the model tier, not the product behaviour.
+#[tokio::test]
+#[ignore = "known limitation of the 1.5B router"]
+async fn removal_grounds_across_languages() {
+    let Some(call) = ask("elimina la macchina blu", REMOVAL_SCENE).await else { return };
+    assert_eq!(call.name, "remove_object");
+    assert_eq!(call.arguments["id"].as_f64(), Some(1.0), "picked the wrong object");
 }
 
 /// Known limitation, kept as a record rather than a passing assertion.

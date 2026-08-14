@@ -1,9 +1,8 @@
 // src/components/SidePanels.tsx
-import { Check, X, Loader, History, Layers as LayersIcon, SlidersHorizontal } from 'lucide-react';
+import { Check, X, Loader, History, Layers as LayersIcon } from 'lucide-react';
 import { useActivityStore } from '../store/activityStore';
 import { useActiveDocument } from '../store/documentStore';
 import { LayerManager } from './LayerManager';
-import { AdjustPanel } from './AdjustPanel';
 import { useT } from '../i18n';
 import { describeError } from '../i18n/backendError';
 
@@ -13,10 +12,14 @@ const formatDuration = (ms?: number) => {
 };
 
 /**
- * Column of advanced panels: hidden by default, revealed with Tab.
+ * The panels that belong to no tool: the stack, and what has been done to it.
  *
- * It holds only real information — the history records operations that were
- * actually performed, with measured timings.
+ * Adjustments and curves used to live here too; they moved into the dock proper
+ * because the rail now has a button that opens them, and the same panel in two
+ * places is one place too many.
+ *
+ * The history records operations that were actually performed, with measured
+ * timings — it is a log, not a claim.
  */
 export const SidePanels: React.FC = () => {
   const entries = useActivityStore((s) => s.entries);
@@ -29,17 +32,7 @@ export const SidePanels: React.FC = () => {
   if (!showLayers && !showActivity) return null;
 
   return (
-    <aside className="nabu-panels">
-      {showLayers && (
-        <section className="side-panel">
-          <header className="side-panel-header">
-            <SlidersHorizontal size={14} />
-            <span>{t('panels.adjust')}</span>
-          </header>
-          <AdjustPanel />
-        </section>
-      )}
-
+    <>
       {showLayers && (
         <section className="side-panel">
           <header className="side-panel-header">
@@ -80,6 +73,6 @@ export const SidePanels: React.FC = () => {
           </div>
         </section>
       )}
-    </aside>
+    </>
   );
 };

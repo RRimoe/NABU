@@ -1,7 +1,7 @@
 // src/components/SelectionActions.tsx
-import { Scissors, Brush, X, Lightbulb } from 'lucide-react';
+import { Scissors, Brush, X, Lightbulb, Eraser } from 'lucide-react';
 import { useDocumentStore, useActiveDocument } from '../store/documentStore';
-import { extractObject } from '../ai/operations';
+import { extractObject, removeSelectedRegion } from '../ai/operations';
 import { useT } from '../i18n';
 
 interface Props {
@@ -54,6 +54,15 @@ export const SelectionActions: React.FC<Props> = ({ x, y }) => {
         >
           <Scissors size={14} />
           <span>{t('bubble.extract')}</span>
+        </button>
+
+        <button
+          onClick={() => void removeSelectedRegion()}
+          disabled={isAIBusy}
+          title={t('bubble.remove.hint')}
+        >
+          <Eraser size={14} />
+          <span>{t('bubble.remove')}</span>
         </button>
 
         {canRefine && (

@@ -14,7 +14,13 @@ import { useSceneStore } from '../store/sceneStore';
 import { sceneSummary } from '../types/scene';
 import { type Adjustments, NEUTRAL_ADJUSTMENTS } from '../types/document';
 import { interpret as matchKeywords } from './intents';
-import { removeBackground, upscale, extractObject } from './operations';
+import {
+  removeBackground,
+  upscale,
+  extractObject,
+  removeObjectByBbox,
+  removeSelectedRegion,
+} from './operations';
 import { resizeByPercent, resizeLongestSide, resizeDocument } from '../ops/resize';
 import { t } from '../i18n';
 
@@ -125,6 +131,29 @@ export async function runToolCall(call: ToolCall): Promise<RouteOutcome> {
       return { messageKey: 'router.reset', handled: true };
     }
 
+    case 'remove_object': {
+      // The id refers to the scene model; the object's box drives the
+      // segmenter → inpainter chain on the backend. A small model sometimes
+      // invents an id when nothing matches — this lookup is the guarantee the
+      // prompt cannot give, and the honest message is the right answer then.
+      const id = Number(call.arguments.id);
+      const scene = useSceneStore.getState().activeScene();
+      const target = scene?.objects.find((o) => o.id === id);
+      if (!target) return { messageKey: 'command.needsGenerative', handled: false };
+
+      await removeObjectByBbox(target.bbox);
+      return { messageKey: 'router.removed', params: { id }, handled: true };
+    }
+
+    case 'remove_selection':
+      await removeSelectedRegion();
+      return { messageKey: 'router.removedSelection', handled: true };
+
+    case 'report_unsupported':
+      // The router understood, and what it understood is not possible yet.
+      // Saying so beats pretending: the user learns the limit, not a bug.
+      return { messageKey: 'command.needsGenerative', handled: false };
+
     case 'adjust': {
       const property = String(call.arguments.property ?? '') as keyof Adjustments;
       const amount = Number(call.arguments.amount ?? 0);
@@ -143,6 +172,112 @@ export async function runToolCall(call: ToolCall): Promise<RouteOutcome> {
     default:
       return { messageKey: 'command.notUnderstood', handled: false };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Scene grounding without a language model
+// ---------------------------------------------------------------------------
+
+/** Everyday words for the detector's classes, so "auto" finds a `car`. */
+const CLASS_WORDS: Record<string, string[]> = {
+  person: ['person', 'people', 'persona', 'persone', 'uomo', 'donna', 'ragazzo', 'ragazza'],
+  car: ['car', 'auto', 'macchina'],
+  bicycle: ['bicycle', 'bike', 'bici', 'bicicletta'],
+  motorbike: ['motorbike', 'motorcycle', 'moto', 'motocicletta'],
+  bus: ['bus', 'autobus'],
+  train: ['train', 'treno'],
+  truck: ['truck', 'camion', 'furgone'],
+  boat: ['boat', 'barca'],
+  bird: ['bird', 'uccello'],
+  cat: ['cat', 'gatto'],
+  dog: ['dog', 'cane'],
+  horse: ['horse', 'cavallo'],
+  umbrella: ['umbrella', 'ombrello'],
+  bottle: ['bottle', 'bottiglia'],
+  cup: ['cup', 'tazza'],
+  chair: ['chair', 'sedia'],
+  sofa: ['sofa', 'couch', 'divano'],
+  laptop: ['laptop', 'portatile', 'computer'],
+  'cell phone': ['phone', 'telefono', 'cellulare', 'smartphone'],
+  book: ['book', 'libro'],
+  clock: ['clock', 'orologio'],
+};
+
+const COLOR_WORDS: Record<string, string[]> = {
+  red: ['red', 'rosso', 'rossa'],
+  orange: ['orange', 'arancione'],
+  yellow: ['yellow', 'giallo', 'gialla'],
+  green: ['green', 'verde'],
+  cyan: ['cyan', 'ciano', 'azzurro', 'azzurra'],
+  blue: ['blue', 'blu'],
+  purple: ['purple', 'viola'],
+  pink: ['pink', 'rosa'],
+  brown: ['brown', 'marrone'],
+  black: ['black', 'nero', 'nera'],
+  white: ['white', 'bianco', 'bianca'],
+  gray: ['gray', 'grey', 'grigio', 'grigia'],
+};
+
+const POSITION_WORDS: Record<string, string[]> = {
+  left: ['left', 'sinistra'],
+  right: ['right', 'destra'],
+  center: ['center', 'centre', 'centro'],
+};
+
+const SELECT_VERBS = /(seleziona|selezionare|select|scegli|evidenzia|pick)/i;
+const REMOVE_VERBS = /(elimin|rimuov|togli|leva|cancell|remove|delete|erase|get\s+rid)/i;
+
+function mentioned(phrase: string, words: string[]): boolean {
+  return words.some((w) => phrase.includes(w));
+}
+
+/**
+ * Resolves "select the red car" or "remove the dog" against the scene without
+ * any language model.
+ *
+ * Deliberately conservative: it needs an explicit verb and an unambiguous
+ * class match, and leaves everything else to the model tiers. Its value is
+ * the build without a language engine, where it is the only grounding there
+ * is — and it costs nothing.
+ */
+function matchSceneSelection(
+  phrase: string,
+  scene: import('../types/scene').SceneModel | null
+): ToolCall | null {
+  if (!scene) return null;
+  const wantsRemoval = REMOVE_VERBS.test(phrase);
+  if (!wantsRemoval && !SELECT_VERBS.test(phrase)) return null;
+  const lower = phrase.toLowerCase();
+
+  let candidates = scene.objects.filter((o) => {
+    const words = CLASS_WORDS[o.class] ?? [o.class.toLowerCase()];
+    return mentioned(lower, words);
+  });
+  if (candidates.length === 0) return null;
+
+  // A colour or position in the phrase narrows the field.
+  for (const [color, words] of Object.entries(COLOR_WORDS)) {
+    if (mentioned(lower, words)) {
+      const narrowed = candidates.filter((o) => o.color === color);
+      if (narrowed.length > 0) candidates = narrowed;
+      break;
+    }
+  }
+  for (const [position, words] of Object.entries(POSITION_WORDS)) {
+    if (mentioned(lower, words)) {
+      const narrowed = candidates.filter((o) => o.position === position);
+      if (narrowed.length > 0) candidates = narrowed;
+      break;
+    }
+  }
+
+  // Still ambiguous: the most confident detection is the best guess, and the
+  // result is visible, so a wrong guess is obvious and cheap to undo.
+  const best = candidates.reduce((a, b) => (b.confidence > a.confidence ? b : a));
+  return {
+    name: wantsRemoval ? 'remove_object' : 'select_object',
+    arguments: { id: best.id },
+  };
 }
 
 /** True when the language model is installed and this build can use it. */
@@ -171,15 +306,32 @@ export async function route(phrase: string): Promise<RouteOutcome> {
     return await runToolCall(intent.call);
   }
 
-  // Early return for recognized generative features not yet implemented
-  if (intent.kind === 'unknown' && intent.reasonKey === 'command.needsGenerative') {
-    return { messageKey: intent.reasonKey, handled: false };
-  }
-
   // Lazy vision: the scene is computed only now that a free-form request
   // needs it, and reused for every request after that. Without it the
   // language tiers still work, they just cannot resolve "the red car".
   const scene = await useSceneStore.getState().analyzeActive();
+
+  // Tier 1.5: explicit selection and removal phrases resolve against the
+  // scene directly, which keeps "select the red car" and "remove the dog"
+  // working even with no language model.
+  const grounded = matchSceneSelection(phrase, scene);
+  if (grounded) {
+    return await runToolCall(grounded);
+  }
+
+  // A removal the scene could not ground, but with an active selection: the
+  // user has already pointed at the thing — no detector needed.
+  if (hasSelection && REMOVE_VERBS.test(phrase) && !SELECT_VERBS.test(phrase)) {
+    return await runToolCall({ name: 'remove_selection', arguments: {} });
+  }
+
+  // A recognised generative request that the scene could not ground: answer
+  // honestly rather than letting the fallback say "not understood". Checked
+  // only after grounding, because "remove the dog" IS possible when a dog is
+  // in the scene.
+  if (intent.kind === 'unknown' && intent.reasonKey === 'command.needsGenerative') {
+    return { messageKey: intent.reasonKey, handled: false };
+  }
 
   // Tier 2: Non-blocking fallback to local Ollama API if running on localhost
   const ollamaCall = await queryOllama(phrase);
