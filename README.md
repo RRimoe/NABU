@@ -11,7 +11,9 @@ An image editor designed **for** AI.
 
 ---
 
-<img src="docs/images/mockup.png" width="900"/>
+<img src="docs/nabu 1.png" width="900"/>
+
+<img src="docs/nabu 2.png" width="900"/>
 
 </div>
 
