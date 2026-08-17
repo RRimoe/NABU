@@ -18,6 +18,7 @@ import {
   type TransformHandle,
 } from '../engine/RenderEngine';
 import type { Point2D, SelectionShape } from '../types/document';
+import { refineByClick } from '../ai/operations';
 import { ActionBar } from './ActionBar';
 import { CropOverlay } from './CropOverlay';
 import { FocusGuide } from './FocusGuide';
@@ -72,6 +73,8 @@ export const CanvasViewport: React.FC = () => {
     refineMode,
     refineSize,
     selectionShape,
+    focusEditing,
+    setFocusEditing,
     setViewport,
     setSelection,
     updateLayer,
@@ -80,6 +83,8 @@ export const CanvasViewport: React.FC = () => {
     selectionBrush,
     setLayerTransform,
     commitTransform,
+    pointRefine,
+    setPointRefine,
   } = useDocumentStore();
 
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
@@ -336,6 +341,11 @@ export const CanvasViewport: React.FC = () => {
   const wantsPan = (button: number) => button === 1 || activeTool === 'pan' || isSpaceDown;
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    // Reaching for the photograph ends the placing of the sharp zone. The
+    // guide stops its own mouse events, so this only fires for presses that
+    // really did land on the picture.
+    if (focusEditing) setFocusEditing(false);
+
     // The crop frame owns the canvas while it is up: a drag there is resizing
     // the frame, never starting a selection underneath it.
     if (cropping && e.button === 0) return;
@@ -348,6 +358,13 @@ export const CanvasViewport: React.FC = () => {
     if (e.button !== 0) return;
 
     const point = toDocumentCoords(e.clientX, e.clientY);
+
+    // Correcting a selection by pointing at it. The click is the whole
+    // gesture — no drag, no confirmation — so it takes the press and stops.
+    if (pointRefine && selection) {
+      void refineByClick(point, e.altKey);
+      return;
+    }
 
     if (refineMode) {
       refineStrokeRef.current = [point];
@@ -465,6 +482,11 @@ export const CanvasViewport: React.FC = () => {
       return;
     }
     setSelection({ path, shape: selectionShape });
+
+    // Drawing with the smart lasso opens the correction loop straight away: the
+    // segmenter has just guessed, and the moment to say where it guessed wrong
+    // is now, not after the removal has already used it.
+    if (activeTool === 'ai-lasso') setPointRefine(true);
   };
 
   /**
@@ -700,10 +722,10 @@ export const CanvasViewport: React.FC = () => {
       )}
 
       {/* The sharp zone is placed by dragging it onto the thing that should
-          stay sharp, not by typing two numbers. Shown whenever a geometric
-          focus is on — it used to be tied to the adjust panel being open,
-          which meant applying a blur and then having no way to move it. */}
-      {!cropping && !refineMode && !transforming && (
+          stay sharp, not by typing two numbers. It is a mode with an end:
+          tied to the panel being open it could not be moved after applying,
+          and tied to the effect being active it never went away. */}
+      {focusEditing && !cropping && !refineMode && !transforming && (
         <FocusGuide
           containerWidth={containerSize.width}
           containerHeight={containerSize.height}

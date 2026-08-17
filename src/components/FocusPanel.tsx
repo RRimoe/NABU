@@ -1,5 +1,5 @@
 // src/components/FocusPanel.tsx
-import { Aperture, Circle, Layers, RectangleHorizontal, RotateCcw, Scan } from 'lucide-react';
+import { Aperture, Check, Circle, Layers, RectangleHorizontal, RotateCcw, Scan } from 'lucide-react';
 import { useDocumentStore, useActiveDocument, useSelection } from '../store/documentStore';
 import { useDepthStore } from '../store/depthStore';
 import { focusOnDepth, focusOnSelection } from '../ops/focus';
@@ -106,7 +106,8 @@ const fromSlider = (key: Slider['key'], value: number): Partial<FocusEffect> => 
 export const FocusPanel: React.FC = () => {
   const doc = useActiveDocument();
   const selection = useSelection();
-  const { setFocus, commitFocus, clearFocus, isAIBusy } = useDocumentStore();
+  const { setFocus, commitFocus, clearFocus, setFocusEditing, isAIBusy } = useDocumentStore();
+  const editing = useDocumentStore((s) => s.focusEditing);
   // A depth run that already failed once is not offered again: the model is
   // either installed or it is not, and retrying costs the user another wait.
   const depthUnavailable = useDepthStore((s) => s.unavailable);
@@ -141,11 +142,17 @@ export const FocusPanel: React.FC = () => {
       return;
     }
 
+    // Choosing a shape is the start of placing it, so the guide comes out.
+    setFocusEditing(true);
     setFocus(layerId, { ...focus, mode }, { history: true });
   };
 
-  const update = (partial: Partial<FocusEffect>) =>
+  const update = (partial: Partial<FocusEffect>) => {
+    // Touching any of these controls is working on the focus, so the guide
+    // comes back even if it was dismissed by a click on the photo.
+    setFocusEditing(true);
     setFocus(layerId, { ...focus, ...partial });
+  };
 
   return (
     <div className="focus-panel">
@@ -206,6 +213,15 @@ export const FocusPanel: React.FC = () => {
             />
             <span>{t('focus.invert')}</span>
           </label>
+
+          {/* The guide is a mode, so it needs a way out that is not "guess".
+              Clicking the photo also ends it; this is the one you can see. */}
+          {editing && (focus.mode === 'linear' || focus.mode === 'radial') && (
+            <button className="focus-done" onClick={() => setFocusEditing(false)}>
+              <Check size={13} />
+              <span>{t('focus.done')}</span>
+            </button>
+          )}
 
           <button className="adjust-reset" onClick={() => clearFocus(layerId)}>
             <RotateCcw size={13} />

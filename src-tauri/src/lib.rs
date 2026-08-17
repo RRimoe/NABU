@@ -104,6 +104,133 @@ fn list_languages(app: AppHandle) -> Vec<LanguageFile> {
         .collect()
 }
 
+/// One click on the picture: this belongs to the object, or this does not.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RefinePoint {
+    x: f32,
+    y: f32,
+    positive: bool,
+}
+
+/// Everything one refinement needs, as a single argument.
+///
+/// A struct rather than ten parameters, because the selection being corrected
+/// has to travel with the corrections: the decoder is stateless, so "refine
+/// what is already selected" is expressed by sending the original prompt and
+/// the clicks together and decoding the lot.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RefineRequest {
+    model_id: String,
+    image_data_url: String,
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
+    outline: Option<Vec<[f32; 2]>>,
+    points: Vec<RefinePoint>,
+}
+
+/// Re-cuts a selection from a handful of clicks, reusing what the encoder
+/// already saw.
+///
+/// The two stages of the segmenter are nothing alike in cost: looking at a
+/// nine-megapixel photograph takes seconds, answering a further prompt about
+/// what it saw takes fifty milliseconds. So a selection does not have to be
+/// right first time. Point at the wheel the segmenter missed, or at the hedge
+/// it took in by mistake, and the answer comes back inside a frame.
+///
+/// This is also the honest answer to a limit we measured rather than guessed:
+/// a box prompt lands five points on an object, and on anything with outlying
+/// parts — wheels, mirrors, a handle — those five points never mention them.
+/// No automatic rule separated the missing parts from the background reliably.
+/// A click does.
+#[tauri::command]
+async fn refine_selection(
+    app: AppHandle,
+    cache: State<'_, Arc<SessionCache>>,
+    request: RefineRequest,
+) -> Result<String, NabuError> {
+    let RefineRequest {
+        model_id,
+        image_data_url,
+        x0,
+        y0,
+        x1,
+        y1,
+        outline,
+        points,
+    } = request;
+
+    let spec = registry::find(&model_id).ok_or_else(|| error::unknown_model(&model_id))?;
+    if spec.files.len() < 2 {
+        return Err(error::missing_file("prompt_encoder_mask_decoder.onnx", spec.name));
+    }
+
+    let encoder_file = spec.files[0].file_name;
+    let decoder_file = spec.files[1].file_name;
+    let cache = cache.inner().clone();
+    let handle = app.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let source = imaging::decode_data_url(&image_data_url)?;
+
+        // Keyed by the picture itself, so a different photograph is encoded
+        // afresh and the same one never is.
+        let key = {
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(image_data_url.as_bytes());
+            format!("{:x}", hasher.finalize())
+        };
+
+        let embedding = cache.embedding_for(&key, || {
+            let encoder = engine::load_file(&handle, &cache, &model_id, encoder_file)?;
+            let mut encoder = encoder.lock().map_err(|_| error::session_unavailable())?;
+            tasks::encode_for_segmentation(&mut encoder, &source, &|_, _| {})
+        })?;
+
+        let decoder = engine::load_file(&handle, &cache, &model_id, decoder_file)?;
+        let mut decoder = decoder.lock().map_err(|_| error::session_unavailable())?;
+
+        // The selection being corrected comes first, expressed the same way the
+        // first cut expressed it, and the clicks follow. Working that rule out
+        // a second time on the other side of the bridge is how the correction
+        // and the thing it corrects drift apart.
+        let (width, height) = source.dimensions();
+        let region = vision::region::Region::from_polygon(
+            outline.as_deref().unwrap_or(&[]),
+            width,
+            height,
+        );
+        let drawn = region
+            .as_ref()
+            .map(|region| region.prompt_points(5))
+            .unwrap_or_default();
+
+        let mut prompt = tasks::seed_points(tasks::BoxPrompt { x0, y0, x1, y1 }, &drawn);
+        prompt.extend(points.iter().map(|point| tasks::PromptPoint {
+            x: point.x,
+            y: point.y,
+            positive: point.positive,
+        }));
+
+        let candidates = tasks::decode_masks(&mut decoder, &embedding, &prompt)?;
+        let best = tasks::pick_mask(&candidates)
+            .ok_or_else(|| error::inference_failed("decoder produced no usable mask"))?;
+        let mask = tasks::lift_mask(&embedding, &best.mask);
+
+        let mut result = source.clone();
+        for (x, y, pixel) in result.enumerate_pixels_mut() {
+            pixel[3] = mask.get_pixel(x, y)[0];
+        }
+        imaging::encode_png_data_url(&result)
+    })
+    .await
+    .map_err(error::unknown)?
+}
+
 /// Cuts out the object inside a rectangle, using the two SlimSAM stages.
 ///
 /// This answers a different question from background removal: not "what is the
@@ -386,6 +513,17 @@ async fn remove_object(
             mask.put_pixel(x, y, image::Luma([px[3]]));
         }
 
+        // What the object casts goes with the object.
+        //
+        // A segmenter marks the bicycle and stops there, correctly: the shadow
+        // on the paving is not the bicycle. But removing the one and leaving
+        // the other removes nothing — the shape on the ground still says
+        // bicycle. This is done here rather than inside the inpainter because
+        // it is only right for a mask that means "this object": a region the
+        // user drew by hand means the region they drew and nothing more.
+        emit(15, "shadow");
+        let mask = vision::shadow::with_shadow(&source, &mask);
+
         // Stage 2: the inpainter rebuilds what the mask covers.
         let inpainter = vision::catalog::best_inpainter(&handle)?;
         let key = format!("{}/{}", inpainter.model_id, inpainter.manifest.file);
@@ -608,6 +746,7 @@ pub fn run() {
             advise_scene,
             remove_object,
             segment_object,
+            refine_selection,
             process_ai_task
         ])
         .run(tauri::generate_context!())

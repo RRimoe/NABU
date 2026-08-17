@@ -2,7 +2,7 @@
 //! Pre- and post-processing pipelines for the installed models.
 
 use image::imageops::FilterType;
-use image::{Rgba, RgbaImage};
+use image::{GrayImage, Rgba, RgbaImage};
 use ort::session::Session;
 use ort::value::Tensor;
 
@@ -279,20 +279,74 @@ pub struct BoxPrompt {
     pub y1: f32,
 }
 
-/// Runs the two SlimSAM stages and returns the source image with its alpha
-/// channel replaced by the mask of the object inside `prompt`.
+/// A place in the picture, and whether it is being pointed at or ruled out.
 ///
-/// Unlike background removal, this does not ask "what is the subject of this
-/// picture" — it asks "what is the object here", which is the difference
-/// between cutting out a car and cutting out the shape someone drew.
-pub fn segment_object(
+/// Negative points are what makes a selection correctable rather than merely
+/// repeatable: "not that" is the only way to tell a segmenter it has taken in
+/// the hedge behind the object, and no amount of pointing at the object says it.
+#[derive(Debug, Clone, Copy)]
+pub struct PromptPoint {
+    pub x: f32,
+    pub y: f32,
+    pub positive: bool,
+}
+
+impl PromptPoint {
+    pub fn inside(x: f32, y: f32) -> Self {
+        Self { x, y, positive: true }
+    }
+}
+
+/// One mask the decoder proposed, with the score it gave itself.
+pub struct MaskCandidate {
+    /// The decoder's own estimate of how well this mask matches the prompt.
+    pub score: f32,
+    /// At the decoder's own resolution, 255 for "inside".
+    ///
+    /// Left small on purpose. Magnifying a 256-pixel mask to nine megapixels
+    /// costs more than the inference that produced it — by a factor of fifty —
+    /// so a caller asking many prompts and merging the answers must merge
+    /// first and magnify once. Use [`lift_mask`] when the full size is wanted.
+    pub mask: GrayImage,
+}
+
+/// Carries a decoder-resolution mask up to the size of the picture.
+pub fn lift_mask(embedding: &SamEmbedding, mask: &GrayImage) -> GrayImage {
+    image::imageops::resize(
+        mask,
+        embedding.width,
+        embedding.height,
+        FilterType::Triangle,
+    )
+}
+
+/// What the encoder makes of one picture.
+///
+/// Worth naming and keeping, because the two stages are not remotely alike in
+/// cost: encoding a nine-megapixel frame takes seconds, and every prompt after
+/// the first is a few milliseconds against the same embedding. Anything that
+/// wants to ask about an object more than once — a second point, a part that
+/// went missing, a correction from the user — should ask again rather than
+/// start again.
+pub struct SamEmbedding {
+    image: Vec<f32>,
+    positional: Vec<f32>,
+    /// Maps source coordinates onto the padded square the model works in.
+    scale: f32,
+    width: u32,
+    height: u32,
+    /// The part of the low-resolution mask that held the picture rather than
+    /// the padding.
+    valid_w: u32,
+    valid_h: u32,
+}
+
+/// The expensive half: looks at the picture, before anyone has said what for.
+pub fn encode_for_segmentation(
     encoder: &mut Session,
-    decoder: &mut Session,
     source: &RgbaImage,
-    prompt: BoxPrompt,
-    points: &[[f32; 2]],
     progress: ProgressFn<'_>,
-) -> NabuResult<RgbaImage> {
+) -> NabuResult<SamEmbedding> {
     let (width, height) = source.dimensions();
 
     progress(15, "prepare");
@@ -352,61 +406,57 @@ pub fn segment_object(
         (image_embeddings, positional)
     };
 
-    let embed_shape = vec![1usize, 256, 64, 64];
-    let image_embeddings = Tensor::from_array((embed_shape.clone(), embeddings.0))
-        .map_err(error::inference_failed)?;
-    let positional_embeddings =
-        Tensor::from_array((embed_shape, embeddings.1)).map_err(error::inference_failed)?;
+    // The low-resolution mask covers the padded square, so only the part that
+    // held the image is meaningful.
+    let valid_w = ((resized_w as f32 / SAM_SIZE as f32) * SAM_MASK_SIZE as f32).round() as u32;
+    let valid_h = ((resized_h as f32 / SAM_SIZE as f32) * SAM_MASK_SIZE as f32).round() as u32;
 
-    // --- Stage 2: decode a mask from positive points -----------------------
-    //
-    // Corner labels 2/3 (the "box" prompt) are not honoured by this export: it
-    // answers with the inverse mask. Positive points, label 1, are the prompt
-    // every SAM build understands, so the selection is expressed as a handful
-    // of points inside it rather than as a rectangle.
-    //
-    // *Inside it* is the operative phrase. Points placed on the bounding box
-    // are not inside anything that is not roughly square: on a hand, a strap or
-    // any diagonal shape, the centre of the box lands on the background, and
-    // the segmenter then answers accurately about the wrong object. So when the
-    // caller drew an outline, the points come from the places furthest from
-    // that outline's border.
-    // Where those points come from is the engine's business, not this file's:
-    // the caller works them out from the shape the user drew and passes them
-    // in. With none supplied the box is all there is to go on.
-    let samples: Vec<(f32, f32)> = if points.is_empty() {
-        let cx = (prompt.x0 + prompt.x1) / 2.0;
-        let cy = (prompt.y0 + prompt.y1) / 2.0;
-        let qx = (prompt.x1 - prompt.x0) / 4.0;
-        let qy = (prompt.y1 - prompt.y0) / 4.0;
-        vec![
-            (cx, cy),
-            (cx - qx, cy),
-            (cx + qx, cy),
-            (cx, cy - qy),
-            (cx, cy + qy),
-        ]
-    } else {
-        points.iter().map(|point| (point[0], point[1])).collect()
-    };
+    progress(100, "done");
+    Ok(SamEmbedding {
+        image: embeddings.0,
+        positional: embeddings.1,
+        scale,
+        width,
+        height,
+        valid_w: valid_w.max(1),
+        valid_h: valid_h.max(1),
+    })
+}
 
-    if samples.is_empty() {
+/// The cheap half: asks the embedding about one prompt.
+///
+/// `samples` are positive points in the source picture's own coordinates. The
+/// decoder answers with three masks at different scopes — a part, a sub-object,
+/// the whole object — and which of the three is wanted is not a question this
+/// function can settle, so it returns all of them.
+pub fn decode_masks(
+    decoder: &mut Session,
+    embedding: &SamEmbedding,
+    samples: &[PromptPoint],
+) -> NabuResult<Vec<MaskCandidate>> {
+    if !samples.iter().any(|point| point.positive) {
         return Err(error::inference_failed("the selection encloses nothing"));
     }
 
+    let embed_shape = vec![1usize, 256, 64, 64];
+    let image_embeddings = Tensor::from_array((embed_shape.clone(), embedding.image.clone()))
+        .map_err(error::inference_failed)?;
+    let positional_embeddings =
+        Tensor::from_array((embed_shape, embedding.positional.clone()))
+            .map_err(error::inference_failed)?;
+
     let mut points = Vec::with_capacity(samples.len() * 2);
-    for (x, y) in &samples {
-        points.push(x * scale);
-        points.push(y * scale);
+    let mut labels = Vec::with_capacity(samples.len());
+    for point in samples {
+        points.push(point.x * embedding.scale);
+        points.push(point.y * embedding.scale);
+        labels.push(if point.positive { 1i64 } else { 0i64 });
     }
-    let labels = vec![1i64; samples.len()];
 
     let input_points = Tensor::from_array((vec![1usize, 1, samples.len(), 2], points))
         .map_err(error::inference_failed)?;
     let input_labels = Tensor::from_array((vec![1usize, 1, samples.len()], labels))
         .map_err(error::inference_failed)?;
-
-    progress(70, "compose");
 
     let outputs = decoder
         .run(ort::inputs![
@@ -435,46 +485,132 @@ pub fn segment_object(
         return Err(error::inference_failed("decoder produced no usable mask"));
     }
 
-    // The decoder proposes three masks at different scopes (part, sub-object,
-    // whole object): take the one it rates highest rather than always the first.
-    let candidates = (masks.len() / mask_plane).min(scores.len().max(1));
-    let best = (0..candidates)
-        .max_by(|a, b| {
-            let sa = scores.get(*a).copied().unwrap_or(0.0);
-            let sb = scores.get(*b).copied().unwrap_or(0.0);
-            sa.total_cmp(&sb)
-        })
-        .unwrap_or(0);
+    let proposed = (masks.len() / mask_plane).min(scores.len().max(1));
+    let mut candidates = Vec::with_capacity(proposed);
+    for index in 0..proposed {
+        let logits = &masks[index * mask_plane..(index + 1) * mask_plane];
 
-    let logits = &masks[best * mask_plane..(best + 1) * mask_plane];
+        let mut small = GrayImage::new(SAM_MASK_SIZE as u32, SAM_MASK_SIZE as u32);
+        for (i, pixel) in small.pixels_mut().enumerate() {
+            // A logit above zero means "inside the object"; a soft ramp around
+            // it keeps the edge from looking cut with scissors.
+            let v = logits[i];
+            pixel[0] = ((v / 4.0 + 0.5).clamp(0.0, 1.0) * 255.0) as u8;
+        }
 
-    // The low-resolution mask covers the padded square, so only the part that
-    // held the image is meaningful.
-    let valid_w = ((resized_w as f32 / SAM_SIZE as f32) * SAM_MASK_SIZE as f32).round() as u32;
-    let valid_h = ((resized_h as f32 / SAM_SIZE as f32) * SAM_MASK_SIZE as f32).round() as u32;
-
-    let mut small = image::GrayImage::new(SAM_MASK_SIZE as u32, SAM_MASK_SIZE as u32);
-    for (i, pixel) in small.pixels_mut().enumerate() {
-        // A logit above zero means "inside the object"; a soft ramp around it
-        // keeps the edge from looking cut with scissors.
-        let v = logits[i];
-        pixel[0] = ((v / 4.0 + 0.5).clamp(0.0, 1.0) * 255.0) as u8;
+        candidates.push(MaskCandidate {
+            score: scores.get(index).copied().unwrap_or(0.0),
+            mask: image::imageops::crop_imm(&small, 0, 0, embedding.valid_w, embedding.valid_h)
+                .to_image(),
+        });
     }
 
-    let cropped =
-        image::imageops::crop_imm(&small, 0, 0, valid_w.max(1), valid_h.max(1)).to_image();
-    let mask = image::imageops::resize(&cropped, width, height, FilterType::Triangle);
+    Ok(candidates)
+}
 
-    // Whether to believe this answer, and how far it is allowed to reach, is
-    // decided by the caller against the shape the user drew — see
-    // `vision::region::constrain`.
+/// Where to prompt from, when all the caller gave is a rectangle.
+///
+/// Corner labels 2/3 — the "box" prompt — are not honoured by this export: it
+/// answers with the inverse mask. Positive points, label 1, are the prompt
+/// every SAM build understands, so a selection is expressed as a handful of
+/// points inside it rather than as a rectangle.
+///
+/// *Inside it* is the operative phrase. Points placed on the bounding box are
+/// not inside anything that is not roughly square: on a hand, a strap or any
+/// diagonal shape the centre of the box lands on the background, and the
+/// segmenter then answers accurately about the wrong object. So when the caller
+/// drew an outline the points come from the places furthest from its border,
+/// worked out by the engine and passed in. With none supplied the box is all
+/// there is to go on.
+pub fn seed_points(prompt: BoxPrompt, points: &[[f32; 2]]) -> Vec<PromptPoint> {
+    if !points.is_empty() {
+        return points
+            .iter()
+            .map(|point| PromptPoint::inside(point[0], point[1]))
+            .collect();
+    }
+    let cx = (prompt.x0 + prompt.x1) / 2.0;
+    let cy = (prompt.y0 + prompt.y1) / 2.0;
+    let qx = (prompt.x1 - prompt.x0) / 4.0;
+    let qy = (prompt.y1 - prompt.y0) / 4.0;
+    vec![
+        PromptPoint::inside(cx, cy),
+        PromptPoint::inside(cx - qx, cy),
+        PromptPoint::inside(cx + qx, cy),
+        PromptPoint::inside(cx, cy - qy),
+        PromptPoint::inside(cx, cy + qy),
+    ]
+}
+
+/// Which of the decoder's proposals to believe.
+///
+/// The highest score, and on a tie the larger mask — which is not a detail.
+/// The three scopes routinely tie to three decimal places, and when they do,
+/// `max_by` alone decides by iteration order: on the photograph this was
+/// written for, the whole object and the sub-object both scored 0.857 and the
+/// smaller one won by nothing more than being last. Removal is the consumer
+/// here, and there the two errors are not symmetric — half an object left
+/// standing is a failure anyone can see, while a mask that reaches a little
+/// too far is repaired by the inpainter that follows.
+pub fn pick_mask(candidates: &[MaskCandidate]) -> Option<&MaskCandidate> {
+    candidates.iter().max_by(|a, b| {
+        let area = |c: &MaskCandidate| c.mask.pixels().filter(|p| p[0] > 128).count();
+        a.score
+            .total_cmp(&b.score)
+            .then_with(|| area(a).cmp(&area(b)))
+    })
+}
+
+/// Runs the two SlimSAM stages and returns every mask the decoder proposes.
+pub fn segment_candidates(
+    encoder: &mut Session,
+    decoder: &mut Session,
+    source: &RgbaImage,
+    prompt: BoxPrompt,
+    points: &[[f32; 2]],
+    progress: ProgressFn<'_>,
+) -> NabuResult<Vec<MaskCandidate>> {
+    let embedding = encode_for_segmentation(encoder, source, progress)?;
+    progress(70, "compose");
+    let mut candidates = decode_masks(decoder, &embedding, &seed_points(prompt, points))?;
+    for candidate in &mut candidates {
+        candidate.mask = lift_mask(&embedding, &candidate.mask);
+    }
+    Ok(candidates)
+}
+
+/// Runs the two SlimSAM stages and returns the source image with its alpha
+/// channel replaced by the mask of the object inside `prompt`.
+///
+/// Unlike background removal, this does not ask "what is the subject of this
+/// picture" — it asks "what is the object here", which is the difference
+/// between cutting out a car and cutting out the shape someone drew.
+///
+/// Whether to believe this answer, and how far it is allowed to reach, is
+/// decided by the caller against the shape the user drew — see
+/// `vision::region::constrain`.
+pub fn segment_object(
+    encoder: &mut Session,
+    decoder: &mut Session,
+    source: &RgbaImage,
+    prompt: BoxPrompt,
+    points: &[[f32; 2]],
+    progress: ProgressFn<'_>,
+) -> NabuResult<RgbaImage> {
+    let embedding = encode_for_segmentation(encoder, source, progress)?;
+    progress(70, "compose");
+    let candidates = decode_masks(decoder, &embedding, &seed_points(prompt, points))?;
+
+    // Chosen on the decoder's own grid, then magnified once. Picking after
+    // magnifying would enlarge three masks to throw two away.
+    let best = pick_mask(&candidates)
+        .ok_or_else(|| error::inference_failed("decoder produced no usable mask"))?;
+    let mask = lift_mask(&embedding, &best.mask);
 
     let mut output = source.clone();
     for (x, y, pixel) in output.enumerate_pixels_mut() {
         let alpha = mask.get_pixel(x, y)[0];
         pixel[3] = ((pixel[3] as u16 * alpha as u16) / 255) as u8;
     }
-
-    progress(100, "done");
     Ok(output)
 }

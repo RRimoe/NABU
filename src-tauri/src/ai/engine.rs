@@ -65,6 +65,37 @@ pub fn detect_accelerator() -> Accelerator {
 #[derive(Default)]
 pub struct SessionCache {
     sessions: Mutex<HashMap<String, Arc<Mutex<Session>>>>,
+    embedding: Mutex<Option<(String, Arc<super::tasks::SamEmbedding>)>>,
+}
+
+impl SessionCache {
+    /// The segmenter's view of a picture, computed once and kept.
+    ///
+    /// Looking at a nine-megapixel photograph takes the encoder seconds;
+    /// answering a prompt against what it saw takes fifty milliseconds. Holding
+    /// the first is the whole difference between a selection you correct by
+    /// pointing at it and a selection you wait for. Exactly one is kept — a
+    /// person corrects the picture in front of them, and each embedding is
+    /// megabytes.
+    pub fn embedding_for(
+        &self,
+        key: &str,
+        make: impl FnOnce() -> NabuResult<super::tasks::SamEmbedding>,
+    ) -> NabuResult<Arc<super::tasks::SamEmbedding>> {
+        if let Some((held, embedding)) = self.embedding.lock().unwrap().as_ref() {
+            if held == key {
+                return Ok(embedding.clone());
+            }
+        }
+        let embedding = Arc::new(make()?);
+        *self.embedding.lock().unwrap() = Some((key.to_string(), embedding.clone()));
+        Ok(embedding)
+    }
+
+    /// Forgets the held embedding, for when the picture it described is gone.
+    pub fn forget_embedding(&self) {
+        *self.embedding.lock().unwrap() = None;
+    }
 }
 
 impl SessionCache {

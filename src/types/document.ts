@@ -379,6 +379,20 @@ export interface Selection {
 /** Mode of the transparency refinement brush. */
 export type RefineMode = 'restore' | 'erase';
 
+/**
+ * One click correcting a selection: this belongs to the object, or it does not.
+ *
+ * The clicks are kept and the mask is derived from them, never the other way
+ * round. The segmenter is stateless — it is handed the whole list every time
+ * and answers afresh — so the list *is* the selection. Undoing is dropping the
+ * last one, and the same clicks always give the same cut.
+ */
+export interface RefinePoint {
+  x: number;
+  y: number;
+  positive: boolean;
+}
+
 export type ToolType =
   | 'select'
   | 'pan'

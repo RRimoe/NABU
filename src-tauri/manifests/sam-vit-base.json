@@ -1,0 +1,15 @@
+{
+  "id": "sam-vit-base",
+  "capability": "segmenter",
+  "file": "vision_encoder.onnx",
+  "priority": 20,
+  "input": {
+    "width": 1024,
+    "height": 1024,
+    "resize": "letterbox"
+  },
+  "output": {
+    "family": "sam",
+    "decoder": "prompt_encoder_mask_decoder.onnx"
+  }
+}

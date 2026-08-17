@@ -289,6 +289,35 @@ pub const MODELS: &[ModelSpec] = &[
         scale_factor: None,
     },
     ModelSpec {
+        id: "sam-vit-base",
+        name: "SAM ViT-B (Segment Anything)",
+        task: ModelTask::Segmentation,
+        description_key: "model.sam-vit-base.description",
+        // Meta's original weights, Apache-2.0 like the pruned variant.
+        license: "Apache-2.0",
+        commercial_use: true,
+        vram_required_mb: 2048,
+        files: &[
+            ModelFile {
+                file_name: "vision_encoder.onnx",
+                url: "https://huggingface.co/Xenova/sam-vit-base/resolve/main/onnx/vision_encoder.onnx",
+                size_bytes: 359_323_905,
+                sha256: Some("238f9a4496b1cfe2a9d6961f3c37c2ce32d89601d4ab95edd0d27f410f682ae5"),
+            },
+            // Byte for byte the file SlimSAM ships: the two models differ only
+            // in the encoder, which is why this one drops straight into the
+            // same manifest family and the same two-stage code path.
+            ModelFile {
+                file_name: "prompt_encoder_mask_decoder.onnx",
+                url: "https://huggingface.co/Xenova/sam-vit-base/resolve/main/onnx/prompt_encoder_mask_decoder.onnx",
+                size_bytes: 16_557_892,
+                sha256: Some("f4514391764fbd56e08e119060d874ecd7d52994bfb1968af159e12d4943b5bb"),
+            },
+        ],
+        input_size: Some(1024),
+        scale_factor: None,
+    },
+    ModelSpec {
         id: "depth-anything-v2-small",
         name: "Depth Anything V2 Small",
         task: ModelTask::Depth,

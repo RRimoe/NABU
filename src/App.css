@@ -645,6 +645,12 @@ body, html, #root {
   color: var(--text-main);
 }
 
+/* What a click does, said once rather than asked every time. */
+.refine-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .refine-modes {
   display: flex;
   gap: 4px;
@@ -1712,6 +1718,28 @@ body, html, #root {
 }
 
 .adjust-reset:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Puts the guide away. It reads as the affirmative one of the pair, above the
+   plain "remove the effect" underneath it. */
+.focus-done {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px;
+  background: var(--accent-wash);
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.focus-done:hover { background: var(--accent); color: var(--on-accent); }
 
 /* Marks the command line as understanding free phrasing rather than keywords. */
 .command-smart {

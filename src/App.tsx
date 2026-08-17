@@ -15,6 +15,7 @@ import { CurvesPanel } from './components/CurvesPanel';
 import { DocumentTabs } from './components/DocumentTabs';
 import { ModelManager } from './components/ModelManager';
 import { RefineBar } from './components/RefineBar';
+import { SelectionRefineBar } from './components/SelectionRefineBar';
 import { EmptyState } from './components/EmptyState';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ResizePopover } from './components/ResizePopover';
@@ -43,6 +44,8 @@ function App() {
     setActiveTool,
     selectionShape,
     setSelectionShape,
+    focusEditing,
+    setFocusEditing,
     dockPanel,
     setDockPanel,
     openImageAsDocument,
@@ -143,6 +146,7 @@ function App() {
 
       if (e.key === 'Escape') {
         if (refineMode) setRefineMode(null);
+        else if (focusEditing) setFocusEditing(false);
         else if (activeTool !== 'select') setActiveTool('select');
         else setSelection(null);
         return;
@@ -206,6 +210,8 @@ function App() {
     setActiveTool,
     selectionShape,
     setSelectionShape,
+    focusEditing,
+    setFocusEditing,
     dockPanel,
     setDockPanel,
     hasDocuments,
@@ -276,6 +282,7 @@ function App() {
           )}
 
           {refineMode && <RefineBar />}
+          <SelectionRefineBar />
         </div>
       </div>
 

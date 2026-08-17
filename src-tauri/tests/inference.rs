@@ -346,6 +346,96 @@ fn object_removal_rebuilds_the_background() {
     assert_eq!(far, src_far, "untouched pixels were altered");
 }
 
+/// The shadow leaves with the object that casts it.
+///
+/// A dark post on bright ground, with the grey it throws across the paving
+/// beside it. A segmenter marks the post and only the post, so unless the
+/// shadow is added to that mask the removal leaves a post-shaped stain on the
+/// ground — which is what happened to the bicycle in the reported photograph.
+///
+/// The mask is built directly rather than segmented, so this tests the shadow
+/// pass and the inpainter and nothing else.
+#[test]
+#[ignore = "requires the LaMa model on disk"]
+fn a_cast_shadow_is_removed_along_with_the_object() {
+    let models = std::path::PathBuf::from(std::env::var("APPDATA").expect("APPDATA"))
+        .join("com.editor.nabu/models");
+    let lama = models.join("lama-inpainting/big-lama.onnx");
+    if !lama.is_file() {
+        eprintln!("models not downloaded, skipping");
+        return;
+    }
+    let mut inpainter = open_session(&lama);
+
+    let size = 512u32;
+    let mut source = RgbaImage::new(size, size);
+    for (x, y, px) in source.enumerate_pixels_mut() {
+        let base = 190 + ((x / 24 + y / 24) % 2) as u8 * 12;
+        *px = Rgba([base, base, base, 255]);
+    }
+    // The post.
+    for y in 150..330u32 {
+        for x in 240..272u32 {
+            source.put_pixel(x, y, Rgba([40, 44, 52, 255]));
+        }
+    }
+    // And its shadow: the same ground under half the light, which is exactly
+    // what a shadow is and why it can be told apart from a dark object.
+    for y in 300..340u32 {
+        for x in 272..420u32 {
+            let px = *source.get_pixel(x, y);
+            source.put_pixel(x, y, Rgba([px[0] / 2, px[1] / 2, px[2] / 2, 255]));
+        }
+    }
+
+    // The mask a segmenter would hand over: the post, nothing else.
+    let mut object = image::GrayImage::new(size, size);
+    for y in 150..330u32 {
+        for x in 240..272u32 {
+            object.put_pixel(x, y, image::Luma([255]));
+        }
+    }
+    assert_eq!(
+        object.get_pixel(350, 320)[0],
+        0,
+        "the segmenter does not mark the shadow, which is the whole problem"
+    );
+
+    let widened = nabu_lib::ai::vision::shadow::with_shadow(&source, &object);
+    assert_eq!(
+        widened.get_pixel(350, 320)[0],
+        255,
+        "the shadow pass must have taken it in"
+    );
+
+    let manifest = nabu_lib::ai::vision::manifest::ModelManifest::parse(include_str!(
+        "../manifests/lama-inpainting.json"
+    ))
+    .expect("manifest");
+
+    let result = nabu_lib::ai::vision::inpaint::remove_region(
+        &mut inpainter,
+        &manifest,
+        &source,
+        &widened,
+        &noop,
+    )
+    .expect("inpainting");
+
+    let after = result.get_pixel(350, 320);
+    println!("where the shadow was: {after:?}");
+    assert!(
+        after[0] > 140,
+        "the shadow survived the removal: {after:?}"
+    );
+
+    let post = result.get_pixel(256, 240);
+    assert!(post[0] > 140, "the post survived the removal: {post:?}");
+
+    let far = result.get_pixel(30, 480);
+    assert_eq!(far, source.get_pixel(30, 480), "untouched pixels were altered");
+}
+
 /// Detection smoke test on a synthetic image.
 ///
 /// A painted scene is not a photograph, so no specific class is asserted: what

@@ -22,6 +22,7 @@ import {
   Selection,
   SelectionShape,
   RefineMode,
+  RefinePoint,
   BACKGROUND_LAYER_ID,
 } from '../types/document';
 
@@ -63,6 +64,10 @@ interface DocumentSession {
   history: NabuDocument[];
   historyIndex: number;
   selection: Selection | null;
+  /** Clicks correcting the selection; the cut below is derived from them. */
+  refinePoints: RefinePoint[];
+  /** The corrected cut, as the source carrying its mask in the alpha channel. */
+  refineCutDataUrl: string | null;
 }
 
 interface DocumentState {
@@ -131,6 +136,14 @@ interface DocumentState {
 
   // Selection
   setSelection: (selection: Selection | null) => void;
+
+  /** Click-to-correct on the current selection. */
+  pointRefine: boolean;
+  setPointRefine: (on: boolean) => void;
+  addRefinePoint: (point: RefinePoint) => void;
+  undoRefinePoint: () => void;
+  clearRefinePoints: () => void;
+  setRefineCut: (dataUrl: string | null) => void;
   /** Shape the next drag traces: freehand, rectangle or ellipse. */
   selectionShape: SelectionShape;
   setSelectionShape: (shape: SelectionShape) => void;
@@ -232,6 +245,16 @@ interface DocumentState {
     layerId: string,
     patch: { delta?: Partial<Adjustments>; focus?: FocusEffect; local?: LocalAdjustment }
   ) => void;
+  /**
+   * True while the sharp zone is being placed on the photo.
+   *
+   * The guide is a mode with a beginning and an end, like the crop frame: it
+   * appears when the focus is being worked on and goes away when attention
+   * moves elsewhere. Tying it to whether the effect is *active* instead left
+   * two lines drawn across the photograph for as long as the blur existed.
+   */
+  focusEditing: boolean;
+  setFocusEditing: (editing: boolean) => void;
   /** Confines a set of corrections to a region. */
   setLocalAdjustment: (layerId: string, local: LocalAdjustment) => void;
   /** Strength of the region, 0..1. No history until committed. */
@@ -301,6 +324,8 @@ const createSession = (document: NabuDocument): DocumentSession => ({
   history: [document],
   historyIndex: 0,
   selection: null,
+  refinePoints: [],
+  refineCutDataUrl: null,
 });
 
 /** Maximum number of undo steps kept per document. */
@@ -512,7 +537,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
 
     setActiveDocument: (id) => {
       if (!get().sessions[id]) return;
-      set({ activeId: id, refineMode: null, welcomeDismissed: false });
+      // Both of these describe work on the photo being left behind.
+      set({ activeId: id, refineMode: null, focusEditing: false, welcomeDismissed: false });
     },
 
     // --- Viewport --------------------------------------------------------
@@ -544,7 +570,22 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
 
     // --- Selezione -------------------------------------------------------
 
-    setSelection: (selection) => patchSession(() => ({ selection })),
+    // A new selection is a new question, so the corrections to the old one go
+    // with it rather than quietly applying to something else.
+    setSelection: (selection) =>
+      patchSession(() => ({ selection, refinePoints: [], refineCutDataUrl: null })),
+
+    pointRefine: false,
+    setPointRefine: (on) => {
+      set({ pointRefine: on });
+      if (!on) patchSession(() => ({ refinePoints: [], refineCutDataUrl: null }));
+    },
+    addRefinePoint: (point) =>
+      patchSession((session) => ({ refinePoints: [...session.refinePoints, point] })),
+    undoRefinePoint: () =>
+      patchSession((session) => ({ refinePoints: session.refinePoints.slice(0, -1) })),
+    clearRefinePoints: () => patchSession(() => ({ refinePoints: [], refineCutDataUrl: null })),
+    setRefineCut: (dataUrl) => patchSession(() => ({ refineCutDataUrl: dataUrl })),
 
     selectionShape: 'free',
     setSelectionShape: (shape) => set({ selectionShape: shape }),
@@ -921,6 +962,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         return { ...current, layers: { ...current.layers, [layerId]: next } };
       }),
 
+    focusEditing: false,
+    setFocusEditing: (editing) =>
+      set((state) => (state.focusEditing === editing ? state : { focusEditing: editing })),
+
     setLocalAdjustment: (layerId, local) =>
       commit((current) => {
         const layer = current.layers[layerId];
@@ -968,14 +1013,17 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         return { ...current, layers: { ...current.layers, [layerId]: next } };
       }),
 
-    clearFocus: (layerId) =>
+    clearFocus: (layerId) => {
+      // Nothing left to place, so the guide has nothing to describe.
+      set({ focusEditing: false });
       commit((current) => {
         const layer = current.layers[layerId];
         if (!layer) return current;
         const next = { ...layer };
         delete next.focus;
         return { ...current, layers: { ...current.layers, [layerId]: next } };
-      }),
+      });
+    },
 
     setLayerFilter: (layerId, filterId) =>
       commit((current) => {

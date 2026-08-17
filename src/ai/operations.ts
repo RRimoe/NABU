@@ -19,6 +19,7 @@ import { loadImage } from '../engine/RenderEngine';
 import type { Intent } from './intents';
 import type { Suggestion } from './suggestions';
 import type { ModelTaskKind } from '../types/models';
+import type { Point2D, RefinePoint } from '../types/document';
 
 function activeContext() {
   const state = useDocumentStore.getState();
@@ -30,6 +31,135 @@ function activeContext() {
 
 function findModel(task: ModelTaskKind) {
   return useModelStore.getState().models.find((m) => m.task === task && m.state === 'ready');
+}
+
+/** Ray casting: whether a point lies within an implicitly closed polygon. */
+function isInsidePolygon(point: Point2D, path: Point2D[]): boolean {
+  let inside = false;
+  for (let i = 0, j = path.length - 1; i < path.length; j = i++) {
+    const a = path[i];
+    const b = path[j];
+    const straddles = a.y > point.y !== b.y > point.y;
+    if (straddles && point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/**
+ * Whether a cut is opaque at a point, which is to say: is this already selected.
+ *
+ * The decoded cut is kept between calls. A click has to answer within a frame
+ * to be worth clicking, and decoding a nine-megapixel PNG to read one pixel
+ * every time would not.
+ */
+let opacityProbe: { key: string; ctx: CanvasRenderingContext2D } | null = null;
+
+async function isOpaqueAt(cutDataUrl: string, x: number, y: number): Promise<boolean> {
+  if (opacityProbe?.key !== cutDataUrl) {
+    const image = await loadImage(cutDataUrl);
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return false;
+    ctx.drawImage(image, 0, 0);
+    opacityProbe = { key: cutDataUrl, ctx };
+  }
+
+  const ctx = opacityProbe.ctx;
+  const px = Math.round(x);
+  const py = Math.round(y);
+  if (px < 0 || py < 0 || px >= ctx.canvas.width || py >= ctx.canvas.height) return false;
+  return ctx.getImageData(px, py, 1, 1).data[3] > 128;
+}
+
+/**
+ * Re-cuts the current selection from the clicks made on it so far.
+ *
+ * Deliberately unlike every other operation in this file: it adds no layer,
+ * begins no activity and shows no busy state. It is meant to run while a
+ * finger is still on the mouse, and it can, because the encoder's view of the
+ * picture is kept on the Rust side — a further click costs about fifty
+ * milliseconds rather than the seconds the first one did.
+ *
+ * The reason it exists is a limit we measured rather than assumed. A rectangle
+ * gives the segmenter five points in the middle of what it encloses, so on
+ * anything with outlying parts — the wheels of a moped, a mirror on a stem, a
+ * handle — those parts are never mentioned and never selected. No automatic
+ * rule we tried told them apart from the background behind them. Pointing at
+ * one does.
+ *
+ * The selection itself travels with the clicks: the segmenter is stateless, so
+ * "correct what is selected" means sending the original prompt and the
+ * corrections together every time.
+ */
+export async function refineSelection(points: RefinePoint[]): Promise<string | null> {
+  const { doc, layer, selection } = activeContext();
+  if (!doc || !layer?.imageDataUrl || !selection) return null;
+
+  const model = findModel('segmentation');
+  if (!model) return null;
+
+  const size = layerSize(layer, doc.width, doc.height);
+  const offset = { x: layer.transform.x, y: layer.transform.y };
+  const xs = selection.path.map((p) => p.x - offset.x);
+  const ys = selection.path.map((p) => p.y - offset.y);
+
+  return invoke<string>('refine_selection', {
+    request: {
+      modelId: model.id,
+      imageDataUrl: layer.imageDataUrl,
+      x0: Math.max(0, Math.min(...xs)),
+      y0: Math.max(0, Math.min(...ys)),
+      x1: Math.min(size.width, Math.max(...xs)),
+      y1: Math.min(size.height, Math.max(...ys)),
+      outline: outlineOf(selection, offset),
+      points: points.map((point) => ({
+        x: point.x - offset.x,
+        y: point.y - offset.y,
+        positive: point.positive,
+      })),
+    },
+  });
+}
+
+/**
+ * Records a click on the picture and re-cuts from it.
+ *
+ * The sign is read off the pixels rather than asked for. A click that lands on
+ * something already selected can only mean "not that"; one that lands outside
+ * can only mean "this too". Nobody points at what they have already got. Alt
+ * inverts it for the rare case where the guess is wrong, and no dialogue
+ * interrupts the loop — the answer arrives fast enough to be judged by looking.
+ */
+export async function refineByClick(at: Point2D, invert: boolean): Promise<void> {
+  const state = useDocumentStore.getState();
+  const session = state.sessions[state.activeId];
+  const selection = session?.selection;
+  const layer = session?.document.activeLayerId
+    ? session.document.layers[session.document.activeLayerId]
+    : null;
+  if (!selection || !layer) return;
+
+  const offset = { x: layer.transform.x, y: layer.transform.y };
+  const already = session.refineCutDataUrl
+    ? await isOpaqueAt(session.refineCutDataUrl, at.x - offset.x, at.y - offset.y)
+    : isInsidePolygon(at, selection.path);
+
+  state.addRefinePoint({ x: at.x, y: at.y, positive: invert ? already : !already });
+
+  const points = useDocumentStore.getState().sessions[state.activeId]?.refinePoints ?? [];
+  try {
+    const cut = await refineSelection(points);
+    if (cut) useDocumentStore.getState().setRefineCut(cut);
+  } catch (error) {
+    // A refinement that fails leaves the click behind rather than the mask in a
+    // state nobody asked for: dropping it is the honest undo.
+    useDocumentStore.getState().undoRefinePoint();
+    alert(describeError(error));
+  }
 }
 
 /** Removes the background, restricted to the selection when there is one. */

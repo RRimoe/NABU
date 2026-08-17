@@ -28,6 +28,7 @@ use super::manifest::{Capability, ModelManifest};
 const BUILT_IN: &[&str] = &[
     include_str!("../../../manifests/dfine-nano.json"),
     include_str!("../../../manifests/slimsam-77.json"),
+    include_str!("../../../manifests/sam-vit-base.json"),
     include_str!("../../../manifests/lama-inpainting.json"),
     include_str!("../../../manifests/depth-anything-v2-small.json"),
     include_str!("../../../manifests/depth-anything-v2-small-quantized.json"),

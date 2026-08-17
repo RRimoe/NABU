@@ -140,6 +140,17 @@ export async function buildSelectionMask(): Promise<BuiltMask | null> {
 
   const size = layerSize(layer, doc.width, doc.height);
   const offset = { x: layer.transform.x, y: layer.transform.y };
+
+  // A selection the user corrected by pointing at it wins over anything this
+  // function would work out on its own. They looked at the answer and said
+  // where it was wrong; asking the segmenter again would throw that away.
+  if (session?.refineCutDataUrl) {
+    return {
+      maskDataUrl: await maskFromCutout(session.refineCutDataUrl, size.width, size.height),
+      refined: true,
+    };
+  }
+
   const model = useModelStore.getState().readyFor('segmentation');
 
   if (!model) {

@@ -21,4 +21,5 @@ pub mod manifest;
 pub mod preprocess;
 pub mod region;
 pub mod scene;
+pub mod shadow;
 pub mod synth;
