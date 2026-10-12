@@ -36,10 +36,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: |
+            src-tauri
+            crates/nabu-stitch
       # Tauri embeds the built interface, so the folder it points at must exist.
       - run: mkdir -p dist
       # Tests that need downloaded models or the network are #[ignore]d and
       # stay out of CI; everything else runs.
       - run: cargo test --all-targets
         working-directory: src-tauri
+      # The stitcher's own tests: precision against rendered ground truth.
+      - run: cargo test --release
+        working-directory: crates/nabu-stitch

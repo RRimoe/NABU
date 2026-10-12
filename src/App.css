@@ -3303,3 +3303,120 @@ body, html, #root {
 
 .mask-handle.small { fill: #fff; stroke: var(--accent); }
 .mask-guide.dragging .mask-handle { cursor: grabbing; }
+
+/* --- Panorama ---------------------------------------------------------------- */
+
+.resize-centred .panorama-dialog { width: 380px; }
+
+.panorama-dialog .resize-head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.panorama-photos {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  max-height: 210px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.panorama-thumb,
+.panorama-add {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-card);
+}
+
+.panorama-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.panorama-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  cursor: pointer;
+}
+
+.panorama-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px dashed var(--border-color);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.panorama-add:hover { color: var(--accent); border-color: var(--accent); }
+
+.panorama-photos:has(.panorama-thumb) .panorama-add { aspect-ratio: 4 / 3; }
+.panorama-photos:not(:has(.panorama-thumb)) { grid-template-columns: 1fr; }
+.panorama-photos:not(:has(.panorama-thumb)) .panorama-add { aspect-ratio: auto; padding: 22px 0; }
+
+.panorama-crop { margin-top: 4px; }
+
+.panorama-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 10px 0 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.panorama-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.panorama-bar > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+.resize-apply.secondary {
+  background: var(--bg-card);
+  color: var(--text-main);
+}
+
+.empty-panorama {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.empty-panorama:hover { color: var(--accent); background: var(--bg-card); }

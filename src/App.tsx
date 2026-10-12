@@ -28,6 +28,7 @@ import { useActivityStore } from './store/activityStore';
 import { copySelection, pasteClipboard } from './ops/clipboard';
 import { loadImage } from './engine/RenderEngine';
 import { ExportPopover } from './components/ExportPopover';
+import { PanoramaDialog } from './components/PanoramaDialog';
 import { ColourPanel } from './components/ColourPanel';
 import { MasksPanel } from './components/MasksPanel';
 import { downloadBlob, safeFileName } from './ops/export';
@@ -74,6 +75,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [resizeOpen, setResizeOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [panoramaOpen, setPanoramaOpen] = useState(false);
   const [panelsOpen, setPanelsOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -302,6 +304,7 @@ function App() {
       <TopBar
         onOpen={() => fileInputRef.current?.click()}
         onExport={() => setExportOpen(true)}
+        onPanorama={() => setPanoramaOpen(true)}
         onSaveProject={saveProject}
         onSettings={() => setSettingsOpen(true)}
         onResize={() => setResizeOpen(true)}
@@ -319,7 +322,11 @@ function App() {
           {hasDocuments ? (
             <CanvasViewport />
           ) : (
-            <EmptyState onOpen={() => fileInputRef.current?.click()} dragging={dragging} />
+            <EmptyState
+              onOpen={() => fileInputRef.current?.click()}
+              onPanorama={() => setPanoramaOpen(true)}
+              dragging={dragging}
+            />
           )}
 
           {refineMode && <RefineBar />}
@@ -400,6 +407,14 @@ function App() {
         <div className="nabu-modal-backdrop" onMouseDown={() => setResizeOpen(false)}>
           <div className="resize-centred" onMouseDown={(e) => e.stopPropagation()}>
             <ResizePopover onClose={() => setResizeOpen(false)} />
+          </div>
+        </div>
+      )}
+
+      {panoramaOpen && (
+        <div className="nabu-modal-backdrop">
+          <div className="resize-centred" onMouseDown={(e) => e.stopPropagation()}>
+            <PanoramaDialog onClose={() => setPanoramaOpen(false)} />
           </div>
         </div>
       )}

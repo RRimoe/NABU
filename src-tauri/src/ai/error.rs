@@ -144,6 +144,22 @@ pub fn router_invalid(reason: impl ToString) -> NabuError {
     NabuError::new("backend.routerInvalid").detail(reason)
 }
 
+pub fn panorama_too_few() -> NabuError {
+    NabuError::new("backend.panoramaTooFew")
+}
+
+pub fn panorama_no_overlap() -> NabuError {
+    NabuError::new("backend.panoramaNoOverlap")
+}
+
+pub fn panorama_failed(cause: impl ToString) -> NabuError {
+    NabuError::new("backend.panoramaFailed").detail(cause)
+}
+
+pub fn cancelled() -> NabuError {
+    NabuError::new("backend.cancelled")
+}
+
 pub fn unknown(cause: impl ToString) -> NabuError {
     NabuError::new("backend.unknown").detail(cause)
 }

@@ -1,10 +1,11 @@
 // src/components/EmptyState.tsx
-import { ImagePlus } from 'lucide-react';
+import { ImagePlus, Images } from 'lucide-react';
 import { Logo } from './Logo';
 import { useT } from '../i18n';
 
 interface Props {
   onOpen: () => void;
+  onPanorama: () => void;
   dragging: boolean;
 }
 
@@ -14,7 +15,7 @@ interface Props {
  * Until there is an image there is nothing to edit, so we do not show an empty
  * sheet — only the invitation to open one.
  */
-export const EmptyState: React.FC<Props> = ({ onOpen, dragging }) => {
+export const EmptyState: React.FC<Props> = ({ onOpen, onPanorama, dragging }) => {
   const t = useT();
 
   return (
@@ -28,6 +29,16 @@ export const EmptyState: React.FC<Props> = ({ onOpen, dragging }) => {
           <ImagePlus size={14} strokeWidth={1.6} />
           <span>{t('empty.hint')}</span>
         </p>
+        <button
+          className="empty-panorama"
+          onClick={(e) => {
+            e.stopPropagation();
+            onPanorama();
+          }}
+        >
+          <Images size={14} strokeWidth={1.6} />
+          <span>{t('panorama.fromStart')}</span>
+        </button>
       </div>
     </div>
   );

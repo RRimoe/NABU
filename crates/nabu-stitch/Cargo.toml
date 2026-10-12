@@ -1,0 +1,24 @@
+[package]
+name = "nabu-stitch"
+version = "0.1.0"
+description = "Panorama stitching for Nabu: feature matching, bundle adjustment, projection, seams and multi-band blending."
+authors = ["Nabu contributors"]
+license = "MIT"
+edition = "2021"
+
+# Pure Rust and free of the application: the desktop app, the command line and
+# the tests all call the same code, and building it needs no system libraries.
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+nalgebra = "0.33"
+rayon = "1.10"
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+# The pixel loops are hopeless unoptimised; tests build them at full speed.
+[profile.test]
+opt-level = 3
+
+[profile.dev]
+opt-level = 2

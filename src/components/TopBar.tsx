@@ -13,6 +13,7 @@ import {
   Scaling,
   Settings,
   Sun,
+  Images,
 } from 'lucide-react';
 import { useDocumentStore, useActiveDocument } from '../store/documentStore';
 import { useSceneStore } from '../store/sceneStore';
@@ -24,6 +25,7 @@ import { useT } from '../i18n';
 interface Props {
   onOpen: () => void;
   onExport: () => void;
+  onPanorama: () => void;
   onSaveProject: () => void;
   onSettings: () => void;
   onResize: () => void;
@@ -43,6 +45,7 @@ interface Props {
 export const TopBar: React.FC<Props> = ({
   onOpen,
   onExport,
+  onPanorama,
   onSaveProject,
   onSettings,
   onResize,
@@ -133,6 +136,16 @@ export const TopBar: React.FC<Props> = ({
               <FolderOpen size={14} />
               <span>{t('rail.open')}</span>
               <kbd>Ctrl+O</kbd>
+            </button>
+
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                onPanorama();
+              }}
+            >
+              <Images size={14} />
+              <span>{t('panorama.menu')}</span>
             </button>
 
             <button

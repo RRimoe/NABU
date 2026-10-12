@@ -2,6 +2,7 @@
 // Public so integration tests can drive the engine through the same modules
 // the application uses, instead of re-including source files by path.
 pub mod ai;
+pub mod panorama;
 
 use std::sync::Arc;
 
@@ -727,6 +728,7 @@ pub fn run() {
         .setup(|app| {
             app.manage(Arc::new(DownloadManager::default()));
             app.manage(Arc::new(SessionCache::default()));
+            app.manage(Arc::new(panorama::PanoramaState::default()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -747,7 +749,9 @@ pub fn run() {
             remove_object,
             segment_object,
             refine_selection,
-            process_ai_task
+            process_ai_task,
+            panorama::stitch_panorama,
+            panorama::cancel_panorama
         ])
         .run(tauri::generate_context!())
         .expect("error while starting the Nabu application");

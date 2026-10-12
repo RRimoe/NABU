@@ -160,6 +160,11 @@ Building: `npm run build:llm`. Tests: `cargo test --all-targets` in
 - [x] Colour lookup tables: load any .cube file onto a layer, with an amount
 - [x] Masks: any number of linear and radial gradients, brightness ranges and
       selections per layer, each with its own sliders, moved on the photo
+- [x] Panoramas: overlapping photos in any order become one picture. SIFT
+      features, a bundle adjustment of every rotation and the lens (focal
+      length and distortion), alignment refined on the full-resolution
+      pixels, flat, cylindrical or spherical projection, exposure matching,
+      graph-cut seams and multi-band blending (`crates/nabu-stitch`)
 
 **Next**
 
