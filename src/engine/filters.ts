@@ -247,14 +247,14 @@ const clampTo = (key: keyof Adjustments, value: number) => {
  * correction away. The sum is clamped to each slider's own range.
  */
 export function applyFilter(base: Adjustments, filter?: LayerFilter): Adjustments {
-  const preset = filterById(filter?.id);
-  if (!preset || !filter) return base;
+  const values = filter?.adjustments ?? filterById(filter?.id)?.adjustments;
+  if (!values || !filter) return base;
 
   const amount = Math.min(1, Math.max(0, filter.amount));
   if (amount === 0) return base;
 
   const result = { ...base };
-  for (const [key, value] of Object.entries(preset.adjustments) as Array<
+  for (const [key, value] of Object.entries(values) as Array<
     [keyof Adjustments, number]
   >) {
     result[key] = clampTo(key, result[key] + value * amount);
@@ -267,7 +267,9 @@ export function applyFilter(base: Adjustments, filter?: LayerFilter): Adjustment
  * look. Returns undefined when there is nothing to do.
  */
 export function effectiveAdjustments(layer: LayerNode): Adjustments | undefined {
-  if (!layer.adjustments && !filterById(layer.filter?.id)) return undefined;
+  if (!layer.adjustments && !layer.filter?.adjustments && !filterById(layer.filter?.id)) {
+    return undefined;
+  }
   const base = { ...NEUTRAL_ADJUSTMENTS, ...layer.adjustments };
   return applyFilter(base, layer.filter);
 }
@@ -276,7 +278,8 @@ export function effectiveAdjustments(layer: LayerNode): Adjustments | undefined 
 export function previewAdjustments(
   base: Adjustments,
   presetId: string,
-  amount = 1
+  amount = 1,
+  adjustments?: Partial<Adjustments>
 ): Adjustments {
-  return applyFilter(base, { id: presetId, amount });
+  return applyFilter(base, { id: presetId, amount, adjustments });
 }

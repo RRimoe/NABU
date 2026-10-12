@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ClipboardCopy,
   ClipboardPaste,
+  Copy,
+  ClipboardCheck,
   Download,
   FolderOpen,
   MoreHorizontal,
@@ -15,6 +17,7 @@ import {
 import { useDocumentStore, useActiveDocument } from '../store/documentStore';
 import { useSceneStore } from '../store/sceneStore';
 import { copySelection, pasteClipboard } from '../ops/clipboard';
+import { activeDevelop, copyDevelop, pasteDevelop } from '../ops/develop';
 import { Logo } from './Logo';
 import { useT } from '../i18n';
 
@@ -48,6 +51,7 @@ export const TopBar: React.FC<Props> = ({
   const doc = useActiveDocument();
   const { theme, toggleTheme } = useDocumentStore();
   const clipboard = useDocumentStore((s) => s.clipboard);
+  const developClipboard = useDocumentStore((s) => s.developClipboard);
   const analyzing = useSceneStore((s) => Object.keys(s.pending).length > 0);
   const entries = useSceneStore((s) => s.entries);
   const activeId = useDocumentStore((s) => s.activeId);
@@ -192,6 +196,31 @@ export const TopBar: React.FC<Props> = ({
               <ClipboardPaste size={14} />
               <span>{t('paste.action')}</span>
               <kbd>Ctrl+V</kbd>
+            </button>
+
+            <button
+              disabled={!hasPhoto || !activeDevelop()}
+              title={!hasPhoto || activeDevelop() ? undefined : t('develop.nothing')}
+              onClick={() => {
+                setMenuOpen(false);
+                copyDevelop();
+              }}
+            >
+              <Copy size={14} />
+              <span>{t('develop.copy')}</span>
+              <kbd>Ctrl+Shift+C</kbd>
+            </button>
+
+            <button
+              disabled={!hasPhoto || !developClipboard}
+              onClick={() => {
+                setMenuOpen(false);
+                pasteDevelop();
+              }}
+            >
+              <ClipboardCheck size={14} />
+              <span>{t('develop.paste')}</span>
+              <kbd>Ctrl+Shift+V</kbd>
             </button>
 
             <div className="topbar-menu-sep" />

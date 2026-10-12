@@ -29,6 +29,7 @@ import { copySelection, pasteClipboard } from './ops/clipboard';
 import { loadImage } from './engine/RenderEngine';
 import { ExportPopover } from './components/ExportPopover';
 import { downloadBlob, safeFileName } from './ops/export';
+import { copyDevelop, pasteDevelop } from './ops/develop';
 import {
   isProjectFile,
   parseProject,
@@ -229,6 +230,13 @@ function App() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
         e.preventDefault();
         fileInputRef.current?.click();
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'c' && hasDocuments) {
+        // With Shift, copy how the photo was developed rather than its pixels.
+        e.preventDefault();
+        copyDevelop();
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'v' && hasDocuments) {
+        e.preventDefault();
+        pasteDevelop();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && hasDocuments) {
         e.preventDefault();
         void copySelection();

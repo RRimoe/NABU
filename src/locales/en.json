@@ -493,5 +493,15 @@
   "compare.before": "Before",
   "compare.after": "After",
   "compare.original": "Original",
-  "compare.toggle": "Compare with the original (Y, hold \\ to peek)"
+  "compare.toggle": "Compare with the original (Y, hold \\ to peek)",
+  "looks.mine": "Your looks",
+  "looks.save": "Save current",
+  "looks.save.hint": "Save these slider positions as a look you can use on any photo",
+  "looks.save.empty": "Move a slider in Adjust first: there is nothing to save yet",
+  "looks.name": "Name of the look",
+  "looks.untitled": "My look",
+  "looks.remove": "Delete this look (photos already using it keep it)",
+  "develop.copy": "Copy settings",
+  "develop.paste": "Paste settings",
+  "develop.nothing": "This layer has no settings to copy"
 }

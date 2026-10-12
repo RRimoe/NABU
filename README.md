@@ -151,6 +151,8 @@ Building: `npm run build:llm`. Tests: `cargo test --all-targets` in
       PNG, JPEG and WebP
 - [x] Brush and eraser on any pixel layer, confined to the selection
 - [x] Before and after: hold \\ to see the original, Y for a draggable split
+- [x] Your own looks, saved from the sliders, and copy/paste of settings
+      between photos (Ctrl+Shift+C / Ctrl+Shift+V)
 
 **Next**
 

@@ -28,6 +28,16 @@ import {
 
 const THEME_STORAGE_KEY = 'nabu.theme';
 
+/**
+ * The part of a layer that is "how it was developed" rather than what it shows:
+ * what copy and paste of settings carries from one photo to another.
+ */
+export interface DevelopSettings {
+  adjustments?: Adjustments;
+  curves?: Curves;
+  filter?: LayerNode['filter'];
+}
+
 /** Sections the right-hand dock can show, one at a time. */
 export type DockPanel = 'suggestions' | 'adjust' | 'filters';
 
@@ -186,6 +196,9 @@ interface DocumentState {
    */
   clipboard: ClipboardItem | null;
   setClipboard: (item: ClipboardItem | null) => void;
+  /** Settings copied from a layer, waiting to be pasted onto another. */
+  developClipboard: DevelopSettings | null;
+  setDevelopClipboard: (settings: DevelopSettings | null) => void;
 
   // Layers
   addLayer: (type?: LayerNode['type'], name?: string, imageDataUrl?: string) => void;
@@ -278,7 +291,14 @@ interface DocumentState {
   commitLocal: (layerId: string) => void;
   clearLocal: (layerId: string) => void;
   /** Chooses a look, or clears it when the id is null. */
-  setLayerFilter: (layerId: string, filterId: string | null) => void;
+  /** `adjustments` carries the values of a look the user saved themselves. */
+  setLayerFilter: (
+    layerId: string,
+    filterId: string | null,
+    adjustments?: Partial<Adjustments>
+  ) => void;
+  /** Replaces a layer's sliders, curves and look in one step, as pasting does. */
+  pasteDevelop: (layerId: string, develop: DevelopSettings) => void;
   /** Strength of the chosen look, 0..1. No history until committed. */
   setFilterAmount: (layerId: string, amount: number) => void;
   commitFilter: (layerId: string) => void;
@@ -637,6 +657,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
 
     clipboard: null,
     setClipboard: (item) => set({ clipboard: item }),
+    developClipboard: null,
+    setDevelopClipboard: (settings) => set({ developClipboard: settings }),
 
     // --- Livelli ---------------------------------------------------------
 
@@ -1062,7 +1084,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       });
     },
 
-    setLayerFilter: (layerId, filterId) =>
+    setLayerFilter: (layerId, filterId, adjustments) =>
       commit((current) => {
         const layer = current.layers[layerId];
         if (!layer) return current;
@@ -1073,8 +1095,24 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           // Re-picking the same look keeps its strength; a new one starts full,
           // because that is what tapping a look is asking for.
           const amount = layer.filter?.id === filterId ? layer.filter.amount : 1;
-          next.filter = { id: filterId, amount };
+          next.filter = adjustments
+            ? { id: filterId, amount, adjustments: { ...adjustments } }
+            : { id: filterId, amount };
         }
+        return { ...current, layers: { ...current.layers, [layerId]: next } };
+      }),
+
+    pasteDevelop: (layerId, develop) =>
+      commit((current) => {
+        const layer = current.layers[layerId];
+        if (!layer) return current;
+        const next: LayerNode = { ...layer };
+        delete next.adjustments;
+        delete next.curves;
+        delete next.filter;
+        if (develop.adjustments) next.adjustments = { ...develop.adjustments };
+        if (develop.curves) next.curves = structuredClone(develop.curves);
+        if (develop.filter) next.filter = structuredClone(develop.filter);
         return { ...current, layers: { ...current.layers, [layerId]: next } };
       }),
 

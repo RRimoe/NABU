@@ -353,6 +353,12 @@ export interface LayerFilter {
   id: string;
   /** 0..1, so a look can be dialled back instead of only on or off. */
   amount: number;
+  /**
+   * The look's own values, carried on the layer for looks the user saved
+   * rather than ones built into Nabu. A project opened on another computer,
+   * where that look was never saved, still renders exactly the same.
+   */
+  adjustments?: Partial<Adjustments>;
 }
 
 export interface Point2D {

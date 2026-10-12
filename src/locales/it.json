@@ -493,5 +493,15 @@
   "compare.before": "Prima",
   "compare.after": "Dopo",
   "compare.original": "Originale",
-  "compare.toggle": "Confronta con l'originale (Y, tieni premuto \\ per sbirciare)"
+  "compare.toggle": "Confronta con l'originale (Y, tieni premuto \\ per sbirciare)",
+  "looks.mine": "I tuoi look",
+  "looks.save": "Salva attuale",
+  "looks.save.hint": "Salva queste regolazioni come look da usare su qualsiasi foto",
+  "looks.save.empty": "Prima sposta un cursore in Regola: non c'è ancora niente da salvare",
+  "looks.name": "Nome del look",
+  "looks.untitled": "Il mio look",
+  "looks.remove": "Elimina questo look (le foto che lo usano lo mantengono)",
+  "develop.copy": "Copia regolazioni",
+  "develop.paste": "Incolla regolazioni",
+  "develop.nothing": "Questo livello non ha regolazioni da copiare"
 }

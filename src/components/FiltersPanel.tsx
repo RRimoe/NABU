@@ -1,11 +1,12 @@
 // src/components/FiltersPanel.tsx
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Palette } from 'lucide-react';
+import { X, Palette, Plus, Check } from 'lucide-react';
 import { useDocumentStore, useActiveDocument } from '../store/documentStore';
 import { FILTERS, FILTER_GROUPS, previewAdjustments } from '../engine/filters';
 import { adjustmentKey, sharedProcessor } from '../engine/adjustments';
 import { loadImage } from '../engine/RenderEngine';
-import { NEUTRAL_ADJUSTMENTS, type Adjustments } from '../types/document';
+import { NEUTRAL_ADJUSTMENTS, isNeutral, type Adjustments } from '../types/document';
+import { useLookStore } from '../store/lookStore';
 import { useT } from '../i18n';
 
 interface Props {
@@ -31,6 +32,12 @@ export const FiltersPanel: React.FC<Props> = ({ onClose }) => {
   const doc = useActiveDocument();
   const { setLayerFilter, setFilterAmount, commitFilter } = useDocumentStore();
   const t = useT();
+  const { looks, save: saveLook, remove: removeLook } = useLookStore();
+  /** Name being typed for a new look; null while the field is closed. */
+  const [naming, setNaming] = useState<string | null>(null);
+  const looksKey = looks.map((look) => look.id).join(',');
+  const looksRef = useRef(looks);
+  looksRef.current = looks;
 
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [basePreview, setBasePreview] = useState<string | null>(null);
@@ -96,15 +103,21 @@ export const FiltersPanel: React.FC<Props> = ({ onClose }) => {
       const current = baseRef.current;
       setBasePreview(render(current));
 
+      // The user's own looks first: they are the ones most likely to be wanted.
+      const queue = [
+        ...looksRef.current.map((look) => ({ id: look.id, adjustments: look.adjustments })),
+        ...FILTERS.map((preset) => ({ id: preset.id, adjustments: undefined })),
+      ];
+
       let index = 0;
       const step = () => {
         if (cancelled) return;
-        const slice = FILTERS.slice(index, index + BATCH);
+        const slice = queue.slice(index, index + BATCH);
         if (slice.length === 0) return;
 
         const produced: Record<string, string> = {};
-        for (const preset of slice) {
-          produced[preset.id] = render(previewAdjustments(current, preset.id));
+        for (const item of slice) {
+          produced[item.id] = render(previewAdjustments(current, item.id, 1, item.adjustments));
         }
         setPreviews((current) => ({ ...current, ...produced }));
 
@@ -123,11 +136,22 @@ export const FiltersPanel: React.FC<Props> = ({ onClose }) => {
       cancelled = true;
       window.cancelAnimationFrame(frameRef.current);
     };
-  }, [source, baseKey]);
+  }, [source, baseKey, looksKey]);
 
   if (!doc || !layerId || !layer) return null;
 
   const active = layer.filter;
+  const canSave = !isNeutral(layer.adjustments);
+
+  /** Saves the current sliders as a look and puts it on, so the result is visible. */
+  const confirmSave = () => {
+    if (naming === null || !layer.adjustments) return;
+    const values = Object.fromEntries(
+      Object.entries(layer.adjustments).filter(([, value]) => value !== 0)
+    ) as Partial<Adjustments>;
+    saveLook(naming || t('looks.untitled'), values);
+    setNaming(null);
+  };
 
   return (
     <section className="side-panel filters-panel">
@@ -150,6 +174,69 @@ export const FiltersPanel: React.FC<Props> = ({ onClose }) => {
             </span>
             <span className="filter-name">{t('filters.none')}</span>
           </button>
+        </div>
+
+        <div className="filters-group">
+          <h4 className="filters-group-title">{t('looks.mine')}</h4>
+          <div className="filters-grid">
+            {looks.map((look) => (
+              <div key={look.id} className="filter-tile-wrap">
+                <button
+                  className={`filter-tile ${active?.id === look.id ? 'on' : ''}`}
+                  onClick={() => setLayerFilter(layerId, look.id, look.adjustments)}
+                  title={look.name}
+                >
+                  <span className="filter-thumb">
+                    {previews[look.id] && <img src={previews[look.id]} alt="" draggable={false} />}
+                  </span>
+                  <span className="filter-name">{look.name}</span>
+                </button>
+                <button
+                  className="filter-tile-remove"
+                  onClick={() => removeLook(look.id)}
+                  title={t('looks.remove')}
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            ))}
+
+            <button
+              className="filter-tile filter-tile-add"
+              disabled={!canSave}
+              onClick={() => setNaming('')}
+              title={canSave ? t('looks.save.hint') : t('looks.save.empty')}
+            >
+              <span className="filter-thumb">
+                <Plus size={20} />
+              </span>
+              <span className="filter-name">{t('looks.save')}</span>
+            </button>
+          </div>
+
+          {naming !== null && (
+            <form
+              className="looks-name"
+              onSubmit={(e) => {
+                e.preventDefault();
+                confirmSave();
+              }}
+            >
+              <input
+                autoFocus
+                value={naming}
+                placeholder={t('looks.name')}
+                maxLength={40}
+                onChange={(e) => setNaming(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setNaming(null);
+                }}
+              />
+              <button type="submit" title={t('looks.save')}>
+                <Check size={14} />
+              </button>
+            </form>
+          )}
         </div>
 
         {FILTER_GROUPS.map((group) => (
