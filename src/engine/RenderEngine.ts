@@ -407,11 +407,18 @@ export class RenderEngine {
     layerId: string,
     image: HTMLImageElement,
     width: number,
-    height: number
+    height: number,
+    /**
+     * Keeps a second document's results apart from the first: the before/after
+     * split draws two versions of the same layer ids in every frame, and with a
+     * single slot each would evict the other and both would re-run every time.
+     */
+    namespace = ''
   ): CanvasImageSource | null {
+    const cacheId = namespace + layerId;
     const layer = doc.layers[layerId];
     if (!layer) {
-      this.adjusted.delete(layerId);
+      this.adjusted.delete(cacheId);
       return null;
     }
 
@@ -423,7 +430,7 @@ export class RenderEngine {
     const flatCurves = areCurvesNeutral(curves);
     const flatFocus = isFocusNeutral(focus);
     if (!adjustments && flatCurves && flatFocus && isLocalNeutral(layer.local)) {
-      this.adjusted.delete(layerId);
+      this.adjusted.delete(cacheId);
       return null;
     }
 
@@ -447,7 +454,7 @@ export class RenderEngine {
       localMask ? 1 : 0,
     ].join('#');
     const signature = `${layer.imageDataUrl?.length ?? 0}|${width}x${height}|${key}`;
-    const cached = this.adjusted.get(layerId);
+    const cached = this.adjusted.get(cacheId);
     if (cached && cached.signature === signature) return cached.canvas;
 
     // A bent curve or a focus effect on untouched sliders still has work to
@@ -632,7 +639,13 @@ export class RenderEngine {
     /** True while the pointer is still down, so the stroke is painted live. */
     drawingSelection = false,
     /** Layer to show move and scale handles for, when one is being placed. */
-    transformLayerId?: string | null
+    transformLayerId?: string | null,
+    /**
+     * The photo as it was opened, for comparing. With `split` null it replaces
+     * the current picture outright; with a split, it fills the part of the frame
+     * left of that fraction of the width.
+     */
+    compare?: { original: NabuDocument; split: number | null } | null
   ): void {
     const { ctx } = this;
 
@@ -645,17 +658,42 @@ export class RenderEngine {
     // Viewport origin: centre of the container, shifted by the pan.
     ctx.translate(containerWidth / 2 + viewport.panX, containerHeight / 2 + viewport.panY);
     ctx.scale(viewport.zoom, viewport.zoom);
-    ctx.translate(-doc.width / 2, -doc.height / 2);
 
-    this.drawCheckerboard(doc.width, doc.height, viewport.zoom);
-    paintLayers(
-      ctx,
-      doc,
-      this.theme,
-      (src) => this.getImage(src),
-      (layerId, image, width, height) =>
-        this.getAdjusted(doc, layerId, image, width, height)
-    );
+    if (compare && compare.split === null) {
+      // The whole original, centred on its own size: after a crop the two are
+      // different shapes, and the original is what the user asked to see.
+      const { original } = compare;
+      ctx.translate(-original.width / 2, -original.height / 2);
+      this.drawDocument(original, viewport.zoom, 'before:');
+      ctx.restore();
+      return;
+    }
+
+    ctx.translate(-doc.width / 2, -doc.height / 2);
+    this.drawDocument(doc, viewport.zoom);
+
+    if (compare && compare.split !== null) {
+      const x = doc.width * compare.split;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, x, doc.height);
+      ctx.clip();
+      ctx.fillStyle = this.theme.viewportBg;
+      ctx.fillRect(0, 0, x, doc.height);
+      this.drawDocument(compare.original, viewport.zoom, 'before:');
+      ctx.restore();
+
+      ctx.save();
+      ctx.lineWidth = 2 / viewport.zoom;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+      ctx.shadowBlur = 4 / viewport.zoom;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, doc.height);
+      ctx.stroke();
+      ctx.restore();
+    }
 
     // No frame around the document: the photo must not look like a sheet.
 
@@ -668,6 +706,19 @@ export class RenderEngine {
     }
 
     ctx.restore();
+  }
+
+  /** Checkerboard and layers of one document, in document coordinates. */
+  private drawDocument(doc: NabuDocument, zoom: number, namespace = ''): void {
+    this.drawCheckerboard(doc.width, doc.height, zoom);
+    paintLayers(
+      this.ctx,
+      doc,
+      this.theme,
+      (src) => this.getImage(src),
+      (layerId, image, width, height) =>
+        this.getAdjusted(doc, layerId, image, width, height, namespace)
+    );
   }
 
   /**

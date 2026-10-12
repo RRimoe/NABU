@@ -2013,6 +2013,27 @@ body, html, #root {
 
 /* The outline follows the pointer over the photo, so it has to read on any
    picture: a dark ring under a light one. */
+.compare-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.compare-label {
+  position: absolute;
+  top: 14px;
+  padding: 4px 9px;
+  background: var(--popover-bg);
+  border: 1px solid var(--popover-border);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+.compare-label.centred { left: 50%; transform: translateX(-50%); }
+
 .brush-overlay {
   position: absolute;
   inset: 0;

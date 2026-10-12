@@ -63,6 +63,11 @@ interface DocumentSession {
   viewport: ViewportTransform;
   history: NabuDocument[];
   historyIndex: number;
+  /**
+   * The document as it was opened, for before/after. Kept apart from the
+   * history, whose oldest steps are dropped once it fills up.
+   */
+  original: NabuDocument;
   selection: Selection | null;
   /** Clicks correcting the selection; the cut below is derived from them. */
   refinePoints: RefinePoint[];
@@ -92,6 +97,15 @@ interface DocumentState {
   /** The opening bubble is shown once per document, until dismissed. */
   welcomeDismissed: boolean;
   dismissWelcome: () => void;
+
+  /**
+   * Before/after: `hold` shows the original while a key is held, `split` shows
+   * it left of a draggable divider at `compareSplit` (0..1 of the width).
+   */
+  compare: 'off' | 'hold' | 'split';
+  compareSplit: number;
+  setCompare: (mode: 'off' | 'hold' | 'split') => void;
+  setCompareSplit: (split: number) => void;
 
   // AI state
   isAIBusy: boolean;
@@ -325,6 +339,7 @@ const createSession = (document: NabuDocument): DocumentSession => ({
   viewport: { zoom: 1.0, panX: 0, panY: 0 },
   history: [document],
   historyIndex: 0,
+  original: document,
   selection: null,
   refinePoints: [],
   refineCutDataUrl: null,
@@ -452,6 +467,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
 
     welcomeDismissed: false,
     dismissWelcome: () => set({ welcomeDismissed: true }),
+
+    compare: 'off',
+    compareSplit: 0.5,
+    setCompare: (mode) => set({ compare: mode }),
+    setCompareSplit: (split) => set({ compareSplit: Math.min(0.98, Math.max(0.02, split)) }),
 
     isAIBusy: false,
     aiProgress: 0,
@@ -1142,6 +1162,9 @@ export const useViewport = () =>
 
 export const useSelection = () =>
   useDocumentStore((s) => s.sessions[s.activeId]?.selection ?? null);
+
+export const useOriginal = () =>
+  useDocumentStore((s) => s.sessions[s.activeId]?.original ?? null);
 
 export const useCanUndo = () =>
   useDocumentStore((s) => (s.sessions[s.activeId]?.historyIndex ?? 0) > 0);

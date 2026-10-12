@@ -489,5 +489,9 @@
   "brush.size.hint": "Brush size in photo pixels ([ and ] to change it)",
   "brush.opacity": "Strength",
   "brush.colour": "Colour",
-  "brush.cannotPaint": "This layer cannot be painted: it is locked, hidden or not made of pixels."
+  "brush.cannotPaint": "This layer cannot be painted: it is locked, hidden or not made of pixels.",
+  "compare.before": "Before",
+  "compare.after": "After",
+  "compare.original": "Original",
+  "compare.toggle": "Compare with the original (Y, hold \\ to peek)"
 }

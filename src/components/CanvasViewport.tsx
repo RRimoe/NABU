@@ -5,6 +5,7 @@ import {
   useActiveDocument,
   useViewport,
   useSelection,
+  useOriginal,
 } from '../store/documentStore';
 import {
   RenderEngine,
@@ -26,6 +27,7 @@ import { PasteChip } from './PasteChip';
 import { TransformBar } from './TransformBar';
 import { BrushBar } from './BrushBar';
 import { canPaint, paintStroke } from '../ops/paint';
+import { useT } from '../i18n';
 
 /** Minimum distance between two lasso points, in document pixels. */
 const LASSO_STEP = 3;
@@ -67,6 +69,8 @@ export const CanvasViewport: React.FC = () => {
   const doc = useActiveDocument();
   const viewport = useViewport();
   const selection = useSelection();
+  const original = useOriginal();
+  const t = useT();
 
   const {
     theme,
@@ -90,6 +94,9 @@ export const CanvasViewport: React.FC = () => {
     brushSize,
     brushOpacity,
     brushColor,
+    compare,
+    compareSplit,
+    setCompareSplit,
   } = useDocumentStore();
 
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
@@ -116,6 +123,20 @@ export const CanvasViewport: React.FC = () => {
   const transforming = activeTool === 'transform';
   const cropping = activeTool === 'crop';
   const painting = (activeTool === 'brush' || activeTool === 'eraser') && !refineMode;
+
+  /**
+   * What the comparison shows this frame. A split needs both pictures to be the
+   * same shape; after a crop or a resize only the whole original makes sense.
+   */
+  const sameShape = original && original.width === doc.width && original.height === doc.height;
+  const compareView =
+    original && compare === 'hold'
+      ? { original, split: null }
+      : original && compare === 'split' && sameShape
+        ? { original, split: compareSplit }
+        : null;
+  const splitting = compareView?.split != null;
+  const splitDragRef = useRef(false);
 
   /**
    * The layer whose handles are shown.
@@ -190,9 +211,11 @@ export const CanvasViewport: React.FC = () => {
       containerSize.height,
       shown,
       asStroke,
-      transformLayerId
+      transformLayerId,
+      compareView
     );
   }, [
+    compareView,
     doc,
     viewport,
     containerSize,
@@ -202,6 +225,36 @@ export const CanvasViewport: React.FC = () => {
     selectionShape,
     transformLayerId,
   ]);
+
+  // Before/after from the keyboard: backslash shows the original for as long
+  // as it is held, Y toggles the split. Both are what photo editors use.
+  useEffect(() => {
+    const typing = () => {
+      const tag = window.document.activeElement?.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA';
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (typing() || e.ctrlKey || e.metaKey || e.altKey) return;
+      const { compare: mode, setCompare: change } = useDocumentStore.getState();
+      if (e.key === '\\' && mode !== 'hold') {
+        e.preventDefault();
+        change('hold');
+      } else if (e.key.toLowerCase() === 'y' && !e.repeat) {
+        e.preventDefault();
+        change(mode === 'split' ? 'off' : 'split');
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      const { compare: mode, setCompare: change } = useDocumentStore.getState();
+      if (e.key === '\\' && mode === 'hold') change('off');
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
 
   // "Fit to screen" requested by the store
   const handledFitRef = useRef(0);
@@ -352,6 +405,17 @@ export const CanvasViewport: React.FC = () => {
   const wantsPan = (button: number) => button === 1 || activeTool === 'pan' || isSpaceDown;
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    // The divider sits on top of every tool: grabbing it never paints, selects
+    // or moves anything.
+    if (splitting && e.button === 0) {
+      const dividerX = toScreen({ x: doc.width * compareSplit, y: 0 }).x;
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect && Math.abs(e.clientX - rect.left - dividerX) <= 8) {
+        splitDragRef.current = true;
+        return;
+      }
+    }
+
     // Reaching for the photograph ends the placing of the sharp zone. The
     // guide stops its own mouse events, so this only fires for presses that
     // really did land on the picture.
@@ -430,6 +494,10 @@ export const CanvasViewport: React.FC = () => {
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    if (splitDragRef.current) {
+      setCompareSplit(toDocumentCoords(e.clientX, e.clientY).x / doc.width);
+      return;
+    }
     if (isPanning) {
       setViewport((prev) => ({
         ...prev,
@@ -487,6 +555,10 @@ export const CanvasViewport: React.FC = () => {
 
   const handleMouseUp = () => {
     setIsPanning(false);
+    if (splitDragRef.current) {
+      splitDragRef.current = false;
+      return;
+    }
 
     if (grabRef.current) {
       grabRef.current = null;
@@ -853,6 +925,29 @@ export const CanvasViewport: React.FC = () => {
       )}
 
       {painting && <BrushBar onDone={() => setActiveTool('select')} />}
+
+      {compareView && (
+        <div className="compare-labels">
+          {splitting ? (
+            <>
+              <span
+                className="compare-label"
+                style={{ left: toScreen({ x: doc.width * compareSplit, y: 0 }).x - 8, transform: 'translateX(-100%)' }}
+              >
+                {t('compare.before')}
+              </span>
+              <span
+                className="compare-label"
+                style={{ left: toScreen({ x: doc.width * compareSplit, y: 0 }).x + 8 }}
+              >
+                {t('compare.after')}
+              </span>
+            </>
+          ) : (
+            <span className="compare-label centred">{t('compare.original')}</span>
+          )}
+        </div>
+      )}
 
       {transforming && transformLayerId && (
         <TransformBar layerId={transformLayerId} onDone={() => setActiveTool('select')} />

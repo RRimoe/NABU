@@ -150,6 +150,7 @@ Building: `npm run build:llm`. Tests: `cargo test --all-targets` in
 - [x] Project files that keep every layer and edit live, and export to
       PNG, JPEG and WebP
 - [x] Brush and eraser on any pixel layer, confined to the selection
+- [x] Before and after: hold \\ to see the original, Y for a draggable split
 
 **Next**
 

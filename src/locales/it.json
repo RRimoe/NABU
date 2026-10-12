@@ -489,5 +489,9 @@
   "brush.size.hint": "Dimensione del pennello in pixel della foto ([ e ] per cambiarla)",
   "brush.opacity": "Intensità",
   "brush.colour": "Colore",
-  "brush.cannotPaint": "Questo livello non si può dipingere: è bloccato, nascosto o non è fatto di pixel."
+  "brush.cannotPaint": "Questo livello non si può dipingere: è bloccato, nascosto o non è fatto di pixel.",
+  "compare.before": "Prima",
+  "compare.after": "Dopo",
+  "compare.original": "Originale",
+  "compare.toggle": "Confronta con l'originale (Y, tieni premuto \\ per sbirciare)"
 }

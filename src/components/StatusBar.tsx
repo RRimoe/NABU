@@ -1,6 +1,7 @@
 // src/components/StatusBar.tsx
 import {
   Circle,
+  Columns2,
   Lasso,
   Maximize2,
   PanelRight,
@@ -52,7 +53,7 @@ export const StatusBar: React.FC<Props> = ({
 }) => {
   const viewport = useViewport();
   const doc = useActiveDocument();
-  const { undo, redo, requestFitToScreen, selectionShape, setSelectionShape } =
+  const { undo, redo, requestFitToScreen, selectionShape, setSelectionShape, compare, setCompare } =
     useDocumentStore();
   const canUndo = useCanUndo();
   const canRedo = useCanRedo();
@@ -143,6 +144,16 @@ export const StatusBar: React.FC<Props> = ({
         )}
 
         {doc && <span className="status-dimensions">{doc.width} x {doc.height}</span>}
+
+        {doc && (
+          <button
+            className={`status-btn ${compare === 'split' ? 'on' : ''}`}
+            onClick={() => setCompare(compare === 'split' ? 'off' : 'split')}
+            title={t('compare.toggle')}
+          >
+            <Columns2 size={15} />
+          </button>
+        )}
 
         <button className="status-btn" onClick={undo} disabled={!canUndo} title={t('status.undo')}>
           <RotateCcw size={15} />
