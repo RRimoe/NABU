@@ -478,5 +478,16 @@
   "export.size": "Size",
   "export.summary": "{width} x {height} px, about {weight}.",
   "export.flattenNote": "JPEG has no transparency: see-through areas become white.",
-  "export.save": "Save {format}"
+  "export.save": "Save {format}",
+  "rail.brush": "Brush",
+  "rail.brush.hint": "Paint on the active layer (B)",
+  "rail.eraser": "Eraser",
+  "rail.eraser.hint": "Erase from the active layer (E)",
+  "brush.brush": "Brush",
+  "brush.eraser": "Eraser",
+  "brush.size": "Size",
+  "brush.size.hint": "Brush size in photo pixels ([ and ] to change it)",
+  "brush.opacity": "Strength",
+  "brush.colour": "Colour",
+  "brush.cannotPaint": "This layer cannot be painted: it is locked, hidden or not made of pixels."
 }

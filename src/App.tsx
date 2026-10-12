@@ -59,6 +59,8 @@ function App() {
     openImageAsDocument,
     openProjectDocument,
     updateAIProgress,
+    brushSize,
+    setBrushSize,
   } = useDocumentStore();
   const { subscribe, refresh, loadAccelerator } = useModelStore();
   const loadExternalLanguages = useI18nStore((s) => s.loadExternal);
@@ -189,6 +191,11 @@ function App() {
           v: () => setActiveTool('select'),
           h: () => setActiveTool('pan'),
           c: () => setActiveTool('crop'),
+          b: () => setActiveTool(activeTool === 'brush' ? 'select' : 'brush'),
+          e: () => setActiveTool(activeTool === 'eraser' ? 'select' : 'eraser'),
+          // Brackets resize the brush, the convention every painting tool shares.
+          '[': () => setBrushSize(Math.round(brushSize * 0.8)),
+          ']': () => setBrushSize(Math.max(brushSize + 1, Math.round(brushSize * 1.25))),
           t: () => setActiveTool(activeTool === 'transform' ? 'select' : 'transform'),
           a: () => setDockPanel(dockPanel === 'adjust' ? 'suggestions' : 'adjust'),
           f: () => setDockPanel(dockPanel === 'filters' ? 'suggestions' : 'filters'),
@@ -249,6 +256,8 @@ function App() {
     setDockPanel,
     hasDocuments,
     saveProject,
+    brushSize,
+    setBrushSize,
   ]);
 
   return (

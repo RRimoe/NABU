@@ -66,7 +66,7 @@ No prompt to phrase. No menu to hunt. Nothing to unlearn.
 Non-destructive adjustments (tone, colour, presence, effects) · tone curves on
 four channels with a live histogram · 25 looks, each previewed on your own
 photo · crop with aspect presets · free transform with rotation and mirroring
-· freehand, rectangular and elliptical selections · selective focus — subject,
+· freehand, rectangular and elliptical selections · brush and eraser · selective focus — subject,
 band (tilt-shift), ellipse · corrections confined to one region · layers,
 blend modes, full history · save the work as a `.nabu` project and reopen it
 with every layer and edit still live · export to PNG, JPEG or WebP, with
@@ -149,6 +149,7 @@ Building: `npm run build:llm`. Tests: `cargo test --all-targets` in
 - [x] Sideloadable models and translations
 - [x] Project files that keep every layer and edit live, and export to
       PNG, JPEG and WebP
+- [x] Brush and eraser on any pixel layer, confined to the selection
 
 **Next**
 
@@ -162,7 +163,6 @@ Building: `npm run build:llm`. Tests: `cargo test --all-targets` in
       what a 512px model can reconstruct in one pass.
 - [ ] **Naming what the detector cannot** — an open-vocabulary grounder, so
       "the yellow sign" resolves outside COCO's 80 classes.
-- [ ] **Brush and eraser**, the two rail entries still missing.
 
 **Later**
 

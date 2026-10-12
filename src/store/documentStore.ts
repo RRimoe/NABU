@@ -444,7 +444,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     activeTool: 'select',
     brushSize: 20,
     brushOpacity: 1.0,
-    brushColor: '#00f0ff',
+    brushColor: '#ffffff',
 
     refineMode: null,
     refineSize: 40,

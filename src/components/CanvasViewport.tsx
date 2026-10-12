@@ -24,6 +24,8 @@ import { CropOverlay } from './CropOverlay';
 import { FocusGuide } from './FocusGuide';
 import { PasteChip } from './PasteChip';
 import { TransformBar } from './TransformBar';
+import { BrushBar } from './BrushBar';
+import { canPaint, paintStroke } from '../ops/paint';
 
 /** Minimum distance between two lasso points, in document pixels. */
 const LASSO_STEP = 3;
@@ -85,6 +87,9 @@ export const CanvasViewport: React.FC = () => {
     commitTransform,
     pointRefine,
     setPointRefine,
+    brushSize,
+    brushOpacity,
+    brushColor,
   } = useDocumentStore();
 
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
@@ -99,12 +104,18 @@ export const CanvasViewport: React.FC = () => {
   /** First corner of a rectangular or elliptical selection. */
   const shapeStartRef = useRef<Point2D | null>(null);
   const refineStrokeRef = useRef<Point2D[] | null>(null);
+  /** Brush or eraser stroke in progress, in document coordinates. */
+  const paintStrokeRef = useRef<Point2D[] | null>(null);
+  const [draftStroke, setDraftStroke] = useState<Point2D[] | null>(null);
+  /** Where the brush outline is drawn, in container pixels; null off the canvas. */
+  const [brushAt, setBrushAt] = useState<Point2D | null>(null);
 
   const docRef = useRef(doc);
   docRef.current = doc;
 
   const transforming = activeTool === 'transform';
   const cropping = activeTool === 'crop';
+  const painting = (activeTool === 'brush' || activeTool === 'eraser') && !refineMode;
 
   /**
    * The layer whose handles are shown.
@@ -371,6 +382,14 @@ export const CanvasViewport: React.FC = () => {
       return;
     }
 
+    if (painting) {
+      const layer = doc.activeLayerId ? doc.layers[doc.activeLayerId] : undefined;
+      if (!canPaint(layer)) return;
+      paintStrokeRef.current = [point];
+      setDraftStroke([point]);
+      return;
+    }
+
     // A handle wins over the selection, so placing a layer never starts one.
     const handle = handleUnder(point);
     if (handle && transformLayerId) {
@@ -422,6 +441,22 @@ export const CanvasViewport: React.FC = () => {
 
     const point = toDocumentCoords(e.clientX, e.clientY);
 
+    if (painting) {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) setBrushAt({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    }
+
+    const stroke = paintStrokeRef.current;
+    if (stroke) {
+      // Spacing relative to the brush keeps a big brush light and a small one
+      // smooth; a fixed step would be one or the other.
+      const last = stroke[stroke.length - 1];
+      if (Math.hypot(point.x - last.x, point.y - last.y) < Math.max(1, brushSize / 10)) return;
+      stroke.push(point);
+      setDraftStroke([...stroke]);
+      return;
+    }
+
     const grab = grabRef.current;
     if (grab) {
       applyGrab(grab, point, e.shiftKey, e.altKey);
@@ -464,6 +499,13 @@ export const CanvasViewport: React.FC = () => {
       const stroke = refineStrokeRef.current;
       refineStrokeRef.current = null;
       if (stroke.length > 0) void applyRefineStroke(stroke);
+      return;
+    }
+
+    if (paintStrokeRef.current) {
+      const stroke = paintStrokeRef.current;
+      paintStrokeRef.current = null;
+      void applyPaintStroke(stroke);
       return;
     }
 
@@ -690,6 +732,36 @@ export const CanvasViewport: React.FC = () => {
     updateLayer(layerId, { imageDataUrl: canvas.toDataURL('image/png') });
   };
 
+  /**
+   * Bakes a finished brush or eraser stroke into the active layer. The draft
+   * stays on screen until the new pixels are in, so the stroke never blinks.
+   */
+  const applyPaintStroke = async (stroke: Point2D[]) => {
+    const current = docRef.current;
+    const layerId = current.activeLayerId;
+    const layer = layerId ? current.layers[layerId] : undefined;
+    try {
+      if (layerId && canPaint(layer)) {
+        const painted = await paintStroke(layer, current, stroke, {
+          mode: activeTool === 'eraser' ? 'erase' : 'paint',
+          size: brushSize,
+          opacity: brushOpacity,
+          color: brushColor,
+          clip: selection?.path,
+        });
+        if (painted) updateLayer(layerId, { imageDataUrl: painted });
+      }
+    } finally {
+      setDraftStroke(null);
+    }
+  };
+
+  /** Document point to container pixels, for drawing over the canvas. */
+  const toScreen = (point: Point2D) => ({
+    x: (point.x - doc.width / 2) * viewport.zoom + containerSize.width / 2 + viewport.panX,
+    y: (point.y - doc.height / 2) * viewport.zoom + containerSize.height / 2 + viewport.panY,
+  });
+
   const panMode = isSpaceDown || activeTool === 'pan';
   const cursor = isPanning
     ? 'grabbing'
@@ -699,7 +771,9 @@ export const CanvasViewport: React.FC = () => {
         ? 'grabbing'
         : transforming
           ? 'move'
-          : 'crosshair';
+          : painting
+            ? 'none'
+            : 'crosshair';
 
   return (
     <div
@@ -709,7 +783,10 @@ export const CanvasViewport: React.FC = () => {
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
+      onMouseLeave={() => {
+        setBrushAt(null);
+        handleMouseUp();
+      }}
     >
       <canvas ref={canvasRef} className="main-render-canvas" />
 
@@ -736,7 +813,46 @@ export const CanvasViewport: React.FC = () => {
 
       {/* One bar in one place, rather than a bubble that lands wherever the
           selection happens to be: the actions are always where you left them. */}
-      {selection && !refineMode && !transforming && !cropping && <ActionBar />}
+      {selection && !refineMode && !transforming && !cropping && !painting && <ActionBar />}
+
+      {/* The stroke being drawn and the brush outline. The real pixels arrive
+          when the stroke ends; until then this is what the user is drawing. */}
+      {painting && !panMode && (
+        <svg className="brush-overlay" width={containerSize.width} height={containerSize.height}>
+          {draftStroke && (
+            <polyline
+              points={draftStroke
+                .map(toScreen)
+                .map((p) => `${p.x},${p.y}`)
+                .join(' ')}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={Math.max(1, brushSize * viewport.zoom)}
+              stroke={activeTool === 'eraser' ? 'rgba(255, 255, 255, 0.55)' : brushColor}
+              strokeOpacity={activeTool === 'eraser' ? 1 : brushOpacity}
+            />
+          )}
+          {brushAt && (
+            <>
+              <circle
+                cx={brushAt.x}
+                cy={brushAt.y}
+                r={Math.max(2, (brushSize * viewport.zoom) / 2)}
+                className="brush-ring dark"
+              />
+              <circle
+                cx={brushAt.x}
+                cy={brushAt.y}
+                r={Math.max(2, (brushSize * viewport.zoom) / 2)}
+                className="brush-ring"
+              />
+            </>
+          )}
+        </svg>
+      )}
+
+      {painting && <BrushBar onDone={() => setActiveTool('select')} />}
 
       {transforming && transformLayerId && (
         <TransformBar layerId={transformLayerId} onDone={() => setActiveTool('select')} />

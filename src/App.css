@@ -1983,6 +1983,45 @@ body, html, #root {
 
 .transform-bar button:disabled { opacity: 0.35; cursor: not-allowed; }
 
+.brush-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.brush-field input { width: 88px; accent-color: var(--accent); }
+
+.brush-field b {
+  min-width: 24px;
+  color: var(--text-main);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.brush-colour input {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+/* The outline follows the pointer over the photo, so it has to read on any
+   picture: a dark ring under a light one. */
+.brush-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.brush-ring { fill: none; stroke: rgba(255, 255, 255, 0.9); stroke-width: 1; }
+.brush-ring.dark { stroke: rgba(0, 0, 0, 0.55); stroke-width: 3; }
+
 .transform-done {
   color: var(--accent) !important;
   background: var(--accent-wash) !important;

@@ -478,5 +478,16 @@
   "export.size": "Dimensione",
   "export.summary": "{width} x {height} px, circa {weight}.",
   "export.flattenNote": "Il JPEG non ha trasparenza: le zone trasparenti diventano bianche.",
-  "export.save": "Salva {format}"
+  "export.save": "Salva {format}",
+  "rail.brush": "Pennello",
+  "rail.brush.hint": "Dipingi sul livello attivo (B)",
+  "rail.eraser": "Gomma",
+  "rail.eraser.hint": "Cancella dal livello attivo (E)",
+  "brush.brush": "Pennello",
+  "brush.eraser": "Gomma",
+  "brush.size": "Dimensione",
+  "brush.size.hint": "Dimensione del pennello in pixel della foto ([ e ] per cambiarla)",
+  "brush.opacity": "Intensità",
+  "brush.colour": "Colore",
+  "brush.cannotPaint": "Questo livello non si può dipingere: è bloccato, nascosto o non è fatto di pixel."
 }

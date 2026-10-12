@@ -1,5 +1,14 @@
 // src/components/LeftRail.tsx
-import { Crop, Hand, Move, Palette, SlidersHorizontal, SquareDashed } from 'lucide-react';
+import {
+  Brush,
+  Crop,
+  Eraser,
+  Hand,
+  Move,
+  Palette,
+  SlidersHorizontal,
+  SquareDashed,
+} from 'lucide-react';
 import { useDocumentStore, type DockPanel } from '../store/documentStore';
 import type { ToolType } from '../types/document';
 import { useT } from '../i18n';
@@ -61,6 +70,8 @@ export const LeftRail: React.FC<Props> = ({ hasPhoto }) => {
             a mode the canvas is in needs somewhere to be turned on. */}
         {tool('transform', Move, 'rail.transform')}
         {tool('crop', Crop, 'rail.crop')}
+        {tool('brush', Brush, 'rail.brush')}
+        {tool('eraser', Eraser, 'rail.eraser')}
         {panel('adjust', SlidersHorizontal, 'rail.adjust')}
         {panel('filters', Palette, 'rail.filters')}
       </div>
