@@ -24,10 +24,18 @@ import { useDocumentStore, useActiveDocument, useHasDocuments } from './store/do
 import { useModelStore } from './store/modelStore';
 import { useSceneStore } from './store/sceneStore';
 import { useI18nStore, useT } from './i18n';
-import { describeError } from './i18n/backendError';
 import { useActivityStore } from './store/activityStore';
 import { copySelection, pasteClipboard } from './ops/clipboard';
-import { exportDocumentToPng, RENDER_THEMES, loadImage } from './engine/RenderEngine';
+import { loadImage } from './engine/RenderEngine';
+import { ExportPopover } from './components/ExportPopover';
+import { downloadBlob, safeFileName } from './ops/export';
+import {
+  isProjectFile,
+  parseProject,
+  projectBlob,
+  ProjectError,
+  PROJECT_EXTENSION,
+} from './ops/project';
 import './App.css';
 
 function App() {
@@ -49,6 +57,7 @@ function App() {
     dockPanel,
     setDockPanel,
     openImageAsDocument,
+    openProjectDocument,
     updateAIProgress,
   } = useDocumentStore();
   const { subscribe, refresh, loadAccelerator } = useModelStore();
@@ -59,6 +68,7 @@ function App() {
   const [modelsOpen, setModelsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [resizeOpen, setResizeOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [panelsOpen, setPanelsOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -102,6 +112,17 @@ function App() {
   /** Opens one or more files, each as its own document. */
   const openFiles = useCallback(
     (files: File[]) => {
+      // Projects first: they carry their own layers and are not images at all.
+      files.filter(isProjectFile).forEach((file) => {
+        file
+          .text()
+          .then((text) => openProjectDocument(parseProject(text)))
+          .catch((err) => {
+            const reason = err instanceof ProjectError ? err.reason : 'damaged';
+            alert(t(`project.error.${reason}`, { name: file.name }));
+          });
+      });
+
       files
         .filter((file) => file.type.startsWith('image/'))
         .forEach((file) => {
@@ -128,8 +149,14 @@ function App() {
           reader.readAsDataURL(file);
         });
     },
-    [openImageAsDocument, t]
+    [openImageAsDocument, openProjectDocument, t]
   );
+
+  /** Writes the active document as a .nabu project, every edit still live. */
+  const saveProject = useCallback(() => {
+    if (!doc) return;
+    downloadBlob(projectBlob(doc), safeFileName(doc.title, PROJECT_EXTENSION));
+  }, [doc]);
 
   // Global shortcuts
   useEffect(() => {
@@ -186,6 +213,12 @@ function App() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         redo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && hasDocuments) {
+        e.preventDefault();
+        saveProject();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e' && hasDocuments) {
+        e.preventDefault();
+        setExportOpen(true);
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
         e.preventDefault();
         fileInputRef.current?.click();
@@ -215,20 +248,8 @@ function App() {
     dockPanel,
     setDockPanel,
     hasDocuments,
+    saveProject,
   ]);
-
-  const handleExport = useCallback(async () => {
-    if (!doc) return;
-    try {
-      const dataUrl = await exportDocumentToPng(doc, RENDER_THEMES[theme]);
-      const link = document.createElement('a');
-      link.download = `${doc.title || 'nabu'}.png`;
-      link.href = dataUrl;
-      link.click();
-    } catch (err) {
-      alert(t('error.exportFailed', { reason: describeError(err) }));
-    }
-  }, [doc, theme, t]);
 
   return (
     <div
@@ -254,14 +275,15 @@ function App() {
           openFiles(Array.from(e.target.files ?? []));
           e.target.value = '';
         }}
-        accept="image/*"
+        accept={`image/*,.${PROJECT_EXTENSION}`}
         multiple
         style={{ display: 'none' }}
       />
 
       <TopBar
         onOpen={() => fileInputRef.current?.click()}
-        onExport={handleExport}
+        onExport={() => setExportOpen(true)}
+        onSaveProject={saveProject}
         onSettings={() => setSettingsOpen(true)}
         onResize={() => setResizeOpen(true)}
         hasPhoto={hasDocuments}
@@ -345,6 +367,14 @@ function App() {
         <div className="nabu-modal-backdrop" onMouseDown={() => setResizeOpen(false)}>
           <div className="resize-centred" onMouseDown={(e) => e.stopPropagation()}>
             <ResizePopover onClose={() => setResizeOpen(false)} />
+          </div>
+        </div>
+      )}
+
+      {exportOpen && (
+        <div className="nabu-modal-backdrop" onMouseDown={() => setExportOpen(false)}>
+          <div className="resize-centred" onMouseDown={(e) => e.stopPropagation()}>
+            <ExportPopover onClose={() => setExportOpen(false)} />
           </div>
         </div>
       )}

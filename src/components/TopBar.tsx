@@ -7,6 +7,7 @@ import {
   FolderOpen,
   MoreHorizontal,
   Moon,
+  Save,
   Scaling,
   Settings,
   Sun,
@@ -20,6 +21,7 @@ import { useT } from '../i18n';
 interface Props {
   onOpen: () => void;
   onExport: () => void;
+  onSaveProject: () => void;
   onSettings: () => void;
   onResize: () => void;
   hasPhoto: boolean;
@@ -38,6 +40,7 @@ interface Props {
 export const TopBar: React.FC<Props> = ({
   onOpen,
   onExport,
+  onSaveProject,
   onSettings,
   onResize,
   hasPhoto,
@@ -132,11 +135,24 @@ export const TopBar: React.FC<Props> = ({
               disabled={!hasPhoto}
               onClick={() => {
                 setMenuOpen(false);
+                onSaveProject();
+              }}
+            >
+              <Save size={14} />
+              <span>{t('project.save')}</span>
+              <kbd>Ctrl+S</kbd>
+            </button>
+
+            <button
+              disabled={!hasPhoto}
+              onClick={() => {
+                setMenuOpen(false);
                 onExport();
               }}
             >
               <Download size={14} />
               <span>{t('rail.export')}</span>
+              <kbd>Ctrl+E</kbd>
             </button>
 
             <button

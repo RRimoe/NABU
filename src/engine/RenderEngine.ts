@@ -743,13 +743,14 @@ export class RenderEngine {
 }
 
 /**
- * Composes the document at full resolution on an offscreen canvas and returns a
- * PNG. Independent of the zoom level and of the viewport crop.
+ * Composes the document at full resolution on an offscreen canvas. Independent
+ * of the zoom level and of the viewport crop; encoding it is the caller's
+ * business, so every export format starts from the same pixels.
  */
-export async function exportDocumentToPng(
+export async function renderDocument(
   doc: NabuDocument,
   theme: RenderTheme
-): Promise<string> {
+): Promise<HTMLCanvasElement> {
   const out = window.document.createElement('canvas');
   out.width = doc.width;
   out.height = doc.height;
@@ -844,5 +845,5 @@ export async function exportDocumentToPng(
     }
   );
 
-  return out.toDataURL('image/png');
+  return out;
 }

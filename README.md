@@ -68,7 +68,9 @@ four channels with a live histogram · 25 looks, each previewed on your own
 photo · crop with aspect presets · free transform with rotation and mirroring
 · freehand, rectangular and elliptical selections · selective focus — subject,
 band (tilt-shift), ellipse · corrections confined to one region · layers,
-blend modes, full history · export to PNG · copy and paste between photos.
+blend modes, full history · save the work as a `.nabu` project and reopen it
+with every layer and edit still live · export to PNG, JPEG or WebP, with
+quality, size and the file weight shown first · copy and paste between photos.
 
 **With local models, downloaded once from inside the app**
 
@@ -145,6 +147,8 @@ Building: `npm run build:llm`. Tests: `cargo test --all-targets` in
 - [x] Local model manager, with licences shown
 - [x] Compositing between photos with light matching
 - [x] Sideloadable models and translations
+- [x] Project files that keep every layer and edit live, and export to
+      PNG, JPEG and WebP
 
 **Next**
 

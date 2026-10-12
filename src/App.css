@@ -1891,6 +1891,25 @@ body, html, #root {
 
 .resize-apply:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* ===== Export ===== */
+.export-label {
+  margin-top: 10px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+
+.export-label b { color: var(--text-main); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.export-choices { margin-top: 5px; }
+
+.export-choices button.on { border-color: var(--accent-border); color: var(--accent); }
+
+.export-quality { display: flex; flex-direction: column; gap: 5px; }
+
+.export-quality input { width: 100%; accent-color: var(--accent); }
+
+.export-error { color: var(--text-main); }
+
 /* ===== Selection shape, in the status bar ===== */
 .status-shapes {
   display: flex;

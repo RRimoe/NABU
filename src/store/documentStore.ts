@@ -118,6 +118,8 @@ interface DocumentState {
     imageWidth: number,
     imageHeight: number
   ) => void;
+  /** Opens a saved project as a new tab, with its layers and edits live. */
+  openProjectDocument: (doc: NabuDocument) => void;
   closeDocument: (id: string) => void;
   setActiveDocument: (id: string) => void;
 
@@ -510,6 +512,21 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         sessions: { ...state.sessions, [withImage.id]: createSession(withImage) },
         order: [...state.order, withImage.id],
         activeId: withImage.id,
+        refineMode: null,
+        welcomeDismissed: false,
+      }));
+      get().requestFitToScreen();
+    },
+
+    openProjectDocument: (saved) => {
+      // A fresh id: the same project can be opened twice, and two tabs sharing
+      // an id would share a history.
+      documentCounter += 1;
+      const doc: NabuDocument = { ...saved, id: `doc-${Date.now()}-${documentCounter}` };
+      set((state) => ({
+        sessions: { ...state.sessions, [doc.id]: createSession(doc) },
+        order: [...state.order, doc.id],
+        activeId: doc.id,
         refineMode: null,
         welcomeDismissed: false,
       }));

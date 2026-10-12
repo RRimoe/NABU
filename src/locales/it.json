@@ -467,5 +467,16 @@
   "navigator.hint": "Trascina per spostarti nella foto",
   "navigator.whole": "La foto è visibile per intero",
   "rail.transform": "Trasforma",
-  "rail.transform.hint": "Sposta, scala e ruota questo livello (T)"
+  "rail.transform.hint": "Sposta, scala e ruota questo livello (T)",
+  "project.save": "Salva progetto",
+  "project.error.notProject": "«{name}» non è un progetto Nabu.",
+  "project.error.tooNew": "«{name}» è stato salvato da una versione più recente di Nabu. Aggiorna Nabu per aprirlo.",
+  "project.error.damaged": "«{name}» è danneggiato e non si può aprire.",
+  "export.title": "Esporta",
+  "export.format": "Formato",
+  "export.quality": "Qualità",
+  "export.size": "Dimensione",
+  "export.summary": "{width} x {height} px, circa {weight}.",
+  "export.flattenNote": "Il JPEG non ha trasparenza: le zone trasparenti diventano bianche.",
+  "export.save": "Salva {format}"
 }

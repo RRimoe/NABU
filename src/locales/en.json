@@ -467,5 +467,16 @@
   "navigator.hint": "Drag to move around the photo",
   "navigator.whole": "The whole photo is visible",
   "rail.transform": "Transform",
-  "rail.transform.hint": "Move, scale and rotate this layer (T)"
+  "rail.transform.hint": "Move, scale and rotate this layer (T)",
+  "project.save": "Save project",
+  "project.error.notProject": "\"{name}\" is not a Nabu project.",
+  "project.error.tooNew": "\"{name}\" was saved by a newer version of Nabu. Update Nabu to open it.",
+  "project.error.damaged": "\"{name}\" is damaged and cannot be opened.",
+  "export.title": "Export",
+  "export.format": "Format",
+  "export.quality": "Quality",
+  "export.size": "Size",
+  "export.summary": "{width} x {height} px, about {weight}.",
+  "export.flattenNote": "JPEG has no transparency: see-through areas become white.",
+  "export.save": "Save {format}"
 }
