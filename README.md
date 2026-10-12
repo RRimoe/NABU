@@ -155,6 +155,8 @@ Building: `npm run build:llm`. Tests: `cargo test --all-targets` in
       between photos (Ctrl+Shift+C / Ctrl+Shift+V)
 - [x] Colour mixer (hue, saturation, luminance of eight colour bands) and
       colour grading of shadows, midtones and highlights
+- [x] Dehaze, black and white with a mix, and the hue, saturation, colour
+      and luminosity blend modes
 
 **Next**
 

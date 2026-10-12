@@ -522,5 +522,11 @@
   "colour.band.aqua": "Acqua",
   "colour.band.blue": "Blu",
   "colour.band.purple": "Viola",
-  "colour.band.magenta": "Magenta"
+  "colour.band.magenta": "Magenta",
+  "blend.hue": "Tonalità",
+  "blend.saturation": "Saturazione",
+  "blend.color": "Colore",
+  "blend.luminosity": "Luminosità",
+  "adjust.dehaze": "Foschia",
+  "adjust.mono": "Bianco e nero"
 }

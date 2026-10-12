@@ -522,5 +522,11 @@
   "colour.band.aqua": "Aquas",
   "colour.band.blue": "Blues",
   "colour.band.purple": "Purples",
-  "colour.band.magenta": "Magentas"
+  "colour.band.magenta": "Magentas",
+  "blend.hue": "Hue",
+  "blend.saturation": "Saturation",
+  "blend.color": "Colour",
+  "blend.luminosity": "Luminosity",
+  "adjust.dehaze": "Dehaze",
+  "adjust.mono": "Black & white"
 }

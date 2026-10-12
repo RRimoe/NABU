@@ -181,6 +181,10 @@ function mapBlendMode(blendMode: BlendMode): GlobalCompositeOperation {
     case 'soft-light': return 'soft-light';
     case 'difference': return 'difference';
     case 'exclusion': return 'exclusion';
+    case 'hue': return 'hue';
+    case 'saturation': return 'saturation';
+    case 'color': return 'color';
+    case 'luminosity': return 'luminosity';
     case 'normal':
     default:
       return 'source-over';

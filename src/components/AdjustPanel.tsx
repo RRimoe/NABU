@@ -26,11 +26,11 @@ const GROUPS: Group[] = [
   },
   {
     titleKey: 'adjust.group.colour',
-    sliders: ['temperature', 'tint', 'vibrance', 'saturation', 'hue'],
+    sliders: ['temperature', 'tint', 'vibrance', 'saturation', 'hue', 'mono'],
   },
   {
     titleKey: 'adjust.group.presence',
-    sliders: ['clarity', 'sharpness', 'blur'],
+    sliders: ['clarity', 'dehaze', 'sharpness', 'blur'],
   },
   {
     titleKey: 'adjust.group.effects',

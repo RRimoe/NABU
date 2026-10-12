@@ -19,7 +19,11 @@ export type BlendMode =
   | 'hard-light'
   | 'soft-light'
   | 'difference'
-  | 'exclusion';
+  | 'exclusion'
+  | 'hue'
+  | 'saturation'
+  | 'color'
+  | 'luminosity';
 
 export interface Transform2D {
   x: number;
@@ -132,6 +136,8 @@ export interface Adjustments {
 
   // Presence
   clarity: number;
+  /** Lifts haze (positive) or adds atmosphere (negative). */
+  dehaze: number;
   sharpness: number;
   /** Blur radius in pixels, 0..20. */
   blur: number;
@@ -143,6 +149,12 @@ export interface Adjustments {
   bloom: number;
   /** Colour fringing towards the corners, the way a cheap lens does it. */
   aberration: number;
+  /**
+   * Black and white, 0..100. Applied after the colour mixer, so the mixer's
+   * luminance sliders become the black-and-white mix: darken the blues and
+   * the sky goes dramatic.
+   */
+  mono: number;
 
   // Colour mixer: hue, saturation and luminance of eight colour bands, so one
   // colour can be changed without touching the others ("bluer sky, same skin").
@@ -196,12 +208,14 @@ export const NEUTRAL_ADJUSTMENTS: Adjustments = {
   saturation: 0,
   hue: 0,
   clarity: 0,
+  dehaze: 0,
   sharpness: 0,
   blur: 0,
   vignette: 0,
   grain: 0,
   bloom: 0,
   aberration: 0,
+  mono: 0,
   mixRedHue: 0,
   mixRedSat: 0,
   mixRedLum: 0,
@@ -255,12 +269,14 @@ export const ADJUSTMENT_RANGES: Record<keyof Adjustments, [number, number]> = {
   saturation: [-100, 100],
   hue: [-180, 180],
   clarity: [-100, 100],
+  dehaze: [-100, 100],
   sharpness: [0, 100],
   blur: [0, 20],
   vignette: [-100, 100],
   grain: [0, 100],
   bloom: [0, 100],
   aberration: [0, 100],
+  mono: [0, 100],
   mixRedHue: [-100, 100],
   mixRedSat: [-100, 100],
   mixRedLum: [-100, 100],

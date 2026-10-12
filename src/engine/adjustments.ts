@@ -109,6 +109,8 @@ uniform float u_vibrance;
 uniform float u_saturation;
 uniform float u_hue;
 uniform float u_clarity;
+uniform float u_dehaze;
+uniform float u_mono;
 uniform float u_sharpness;
 uniform float u_blurAmount;
 uniform float u_vignette;
@@ -370,6 +372,21 @@ void main() {
     colour = clamp(colour + detail * u_clarity * 2.0, 0.0, 1.0);
   }
 
+  // --- Dehaze: a dark-channel estimate of the haze, lifted or added --------
+  // Haze is the light that every channel shares over a wide area, so the
+  // darkest channel of the blurred copy is a fair map of how much of it lies
+  // over each point. Positive values take that veil off and stretch what is
+  // left; negative ones lay a pale veil on instead.
+  if (abs(u_dehaze) > 0.001) {
+    float haze = min(blurred.r, min(blurred.g, blurred.b));
+    if (u_dehaze > 0.0) {
+      float veil = haze * u_dehaze * 0.7;
+      colour = clamp((colour - veil) / max(1.0 - veil, 0.2), 0.0, 1.0);
+    } else {
+      colour = mix(colour, vec3(0.82), -u_dehaze * 0.45 * (0.4 + 0.6 * haze));
+    }
+  }
+
   // --- Sharpness: 3x3 unsharp mask ---------------------------------------
   if (u_sharpness > 0.001) {
     vec3 neighbours =
@@ -402,6 +419,10 @@ void main() {
   // After the global colour, so a mixer band acts on the colours the user is
   // looking at; before the curves, which finish the picture.
   if (u_hasMix > 0.5) colour = applyMixer(colour);
+  // Black and white comes after the mixer and before the grade: the mixer's
+  // luminance is the black-and-white mix, and a grade can still tone the
+  // result into sepia or selenium.
+  if (u_mono > 0.001) colour = mix(colour, vec3(luminance(colour)), u_mono);
   if (u_hasGrade > 0.5) colour = applyGrade(colour);
 
   // --- Tone curves --------------------------------------------------------
@@ -484,6 +505,8 @@ function uniformsFor(a: Adjustments) {
     u_saturation: a.saturation / 100,
     u_hue: a.hue,
     u_clarity: a.clarity / 100,
+    u_dehaze: (a.dehaze ?? 0) / 100,
+    u_mono: Math.max(0, a.mono ?? 0) / 100,
     u_sharpness: Math.max(0, a.sharpness) / 100,
     u_blurAmount: Math.min(1, a.blur / 20),
     u_vignette: a.vignette / 100,
@@ -550,6 +573,9 @@ export function colourUniforms(a: Adjustments) {
 
 /** Radius, in pixels, of the blurred reference clarity compares against. */
 const CLARITY_RADIUS = 12;
+
+/** Radius of the area haze is estimated over: wide, since haze is. */
+const DEHAZE_RADIUS = 24;
 
 /** Spread of the bloom, in thousandths of the longest side. */
 const BLOOM_RADIUS = 14;
@@ -803,10 +829,12 @@ export class AdjustmentProcessor {
         ? (activeFocus.amount / 1000) * Math.max(width, height)
         : 0;
       const needsClarity = adjustments.clarity !== 0;
+      const needsDehaze = Boolean(adjustments.dehaze);
       const radius = Math.max(
         adjustments.blur,
         focusRadius,
-        needsClarity ? CLARITY_RADIUS : 0
+        needsClarity ? CLARITY_RADIUS : 0,
+        needsDehaze ? DEHAZE_RADIUS : 0
       );
 
       // The blurred copy is the expensive part of the pass — two separable

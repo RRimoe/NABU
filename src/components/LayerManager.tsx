@@ -28,6 +28,10 @@ const BLEND_MODES: BlendMode[] = [
   'soft-light',
   'difference',
   'exclusion',
+  'hue',
+  'saturation',
+  'color',
+  'luminosity',
 ];
 
 export const LayerManager: React.FC = () => {
