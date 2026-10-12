@@ -83,6 +83,9 @@ uniform sampler2D u_bloomTex;   // separately blurred copy, for the glow
 uniform sampler2D u_lut;        // 256x1 tone-curve table, one axis per channel
 uniform sampler2D u_focusMask;  // white where the picture stays sharp
 uniform float u_hasLut;         // 0 when every curve is still the diagonal
+uniform highp sampler3D u_lut3d; // colour lookup table from a .cube file
+uniform float u_lut3dAmount;    // 0 when there is none
+uniform float u_lut3dSize;
 uniform vec2 u_texelSize;
 
 // Selective focus. 0 off, 1 mask, 2 linear band, 3 ellipse, 4 depth plane.
@@ -434,6 +437,16 @@ void main() {
       texture(u_lut, vec2(colour.g, 0.5)).g,
       texture(u_lut, vec2(colour.b, 0.5)).b
     );
+  }
+
+  // --- 3D LUT -------------------------------------------------------------
+  // After the curves: a table is usually a finished grade, made to be the
+  // last colour step. Coordinates are moved half a cell in so the first and
+  // last entries land exactly on black and white.
+  if (u_lut3dAmount > 0.001) {
+    float n = u_lut3dSize;
+    vec3 coord = clamp(colour, 0.0, 1.0) * ((n - 1.0) / n) + 0.5 / n;
+    colour = mix(colour, texture(u_lut3d, coord).rgb, u_lut3dAmount);
   }
 
   // --- Bloom --------------------------------------------------------------
@@ -793,7 +806,9 @@ export class AdjustmentProcessor {
      * Identifies the source pixels, so the blurred copy can be reused when
      * only the settings changed. Omit and nothing is cached.
      */
-    cacheKey?: string
+    cacheKey?: string,
+    /** A colour lookup table, as shaderLut() returns it. */
+    lut?: { size: number; rgb: Uint8Array; amount: number; key: string }
   ): HTMLCanvasElement | null {
     const flatCurves = areCurvesNeutral(curves);
     // A mask that has not finished decoding yet is treated as no focus at all:
@@ -803,7 +818,7 @@ export class AdjustmentProcessor {
         ? focus
         : undefined;
 
-    if (this.failed || (isNeutral(adjustments) && flatCurves && !activeFocus)) return null;
+    if (this.failed || (isNeutral(adjustments) && flatCurves && !activeFocus && !lut)) return null;
 
     const gl = this.gl!;
     this.canvas.width = width;
@@ -931,6 +946,28 @@ export class AdjustmentProcessor {
         );
       }
       gl.uniform1i(gl.getUniformLocation(program, 'u_focusMask'), 4);
+
+      // Unit 5 always holds a 3D texture, a 1x1x1 one when there is no table:
+      // a sampler3D left without one is an error on some drivers.
+      gl.activeTexture(gl.TEXTURE5);
+      const cube = gl.createTexture()!;
+      created.push(cube);
+      gl.bindTexture(gl.TEXTURE_3D, cube);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      if (lut) {
+        gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGB8, lut.size, lut.size, lut.size, 0, gl.RGB, gl.UNSIGNED_BYTE, lut.rgb);
+      } else {
+        gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGB8, 1, 1, 1, 0, gl.RGB, gl.UNSIGNED_BYTE, new Uint8Array(3));
+      }
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+      gl.uniform1i(gl.getUniformLocation(program, 'u_lut3d'), 5);
+      gl.uniform1f(gl.getUniformLocation(program, 'u_lut3dAmount'), lut ? lut.amount : 0);
+      gl.uniform1f(gl.getUniformLocation(program, 'u_lut3dSize'), lut ? lut.size : 1);
 
       for (const [name, value] of Object.entries(focusUniforms(activeFocus))) {
         gl.uniform1f(gl.getUniformLocation(program, name), value);

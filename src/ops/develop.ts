@@ -18,6 +18,7 @@ export function activeDevelop(): DevelopSettings | null {
   if (!isNeutral(layer.adjustments)) settings.adjustments = { ...layer.adjustments! };
   if (!areCurvesNeutral(layer.curves)) settings.curves = structuredClone(layer.curves);
   if (layer.filter) settings.filter = structuredClone(layer.filter);
+  if (layer.lut) settings.lut = { ...layer.lut };
   return Object.keys(settings).length > 0 ? settings : null;
 }
 

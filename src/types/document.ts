@@ -83,6 +83,19 @@ export interface LayerNode {
   local?: LocalAdjustment;
   /** Look chosen from the filter panel, layered on top of the sliders. */
   filter?: LayerFilter;
+  /** A 3D colour lookup table loaded from a .cube file. */
+  lut?: LayerLut;
+}
+
+export interface LayerLut {
+  /** File name or the table's own title, shown in the panel. */
+  name: string;
+  /** Points per side of the cube. */
+  size: number;
+  /** RGB8 entries, red varying fastest, as base64. */
+  data: string;
+  /** 0..1, how much of the table's result is mixed in. */
+  amount: number;
 }
 
 export interface NabuDocument {

@@ -24,6 +24,7 @@ import {
   RefineMode,
   RefinePoint,
   BACKGROUND_LAYER_ID,
+  LayerLut,
 } from '../types/document';
 
 const THEME_STORAGE_KEY = 'nabu.theme';
@@ -36,6 +37,7 @@ export interface DevelopSettings {
   adjustments?: Adjustments;
   curves?: Curves;
   filter?: LayerNode['filter'];
+  lut?: LayerNode['lut'];
 }
 
 /** Sections the right-hand dock can show, one at a time. */
@@ -297,6 +299,11 @@ interface DocumentState {
     filterId: string | null,
     adjustments?: Partial<Adjustments>
   ) => void;
+  /**
+   * Puts a colour lookup table on a layer, changes its amount, or removes it
+   * (null). `history: false` while a slider is being dragged.
+   */
+  setLayerLut: (layerId: string, lut: LayerLut | null, options?: { history?: boolean }) => void;
   /** Replaces a layer's sliders, curves and look in one step, as pasting does. */
   pasteDevelop: (layerId: string, develop: DevelopSettings) => void;
   /** Strength of the chosen look, 0..1. No history until committed. */
@@ -1102,6 +1109,16 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         return { ...current, layers: { ...current.layers, [layerId]: next } };
       }),
 
+    setLayerLut: (layerId, lut, options) =>
+      commit((current) => {
+        const layer = current.layers[layerId];
+        if (!layer) return current;
+        const next: LayerNode = { ...layer };
+        if (lut) next.lut = lut;
+        else delete next.lut;
+        return { ...current, layers: { ...current.layers, [layerId]: next } };
+      }, options),
+
     pasteDevelop: (layerId, develop) =>
       commit((current) => {
         const layer = current.layers[layerId];
@@ -1110,6 +1127,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         delete next.adjustments;
         delete next.curves;
         delete next.filter;
+        delete next.lut;
+        if (develop.lut) next.lut = { ...develop.lut };
         if (develop.adjustments) next.adjustments = { ...develop.adjustments };
         if (develop.curves) next.curves = structuredClone(develop.curves);
         if (develop.filter) next.filter = structuredClone(develop.filter);

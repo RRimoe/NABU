@@ -528,5 +528,9 @@
   "blend.color": "Colour",
   "blend.luminosity": "Luminosity",
   "adjust.dehaze": "Dehaze",
-  "adjust.mono": "Black & white"
+  "adjust.mono": "Black & white",
+  "colour.lut": "Colour lookup (LUT)",
+  "colour.lut.load": "Load a .cube file",
+  "colour.lut.remove": "Remove the LUT",
+  "colour.lut.unreadable": "\"{name}\" could not be read as a LUT: {reason}."
 }

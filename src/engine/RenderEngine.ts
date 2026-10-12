@@ -2,6 +2,7 @@
 import { adjustmentKey, sharedProcessor } from './adjustments';
 import { curvesKey } from './curves';
 import { effectiveAdjustments } from './filters';
+import { shaderLut } from './lut';
 import { alphaFromLuminance, compositeThroughMask } from './maskAlpha';
 import {
   NabuDocument,
@@ -433,7 +434,8 @@ export class RenderEngine {
     const focus = layer.focus;
     const flatCurves = areCurvesNeutral(curves);
     const flatFocus = isFocusNeutral(focus);
-    if (!adjustments && flatCurves && flatFocus && isLocalNeutral(layer.local)) {
+    const lut = shaderLut(layer.lut);
+    if (!adjustments && flatCurves && flatFocus && isLocalNeutral(layer.local) && !lut) {
       this.adjusted.delete(cacheId);
       return null;
     }
@@ -456,6 +458,7 @@ export class RenderEngine {
       mask ? 1 : 0,
       localKey(local),
       localMask ? 1 : 0,
+      lut?.key ?? '',
     ].join('#');
     const signature = `${layer.imageDataUrl?.length ?? 0}|${width}x${height}|${key}`;
     const cached = this.adjusted.get(cacheId);
@@ -476,7 +479,8 @@ export class RenderEngine {
       curves,
       focus,
       mask,
-      pixelKey
+      pixelKey,
+      lut
     );
 
     // A region is a second run of the same pipeline with the region's deltas
@@ -500,7 +504,8 @@ export class RenderEngine {
         curves,
         focus,
         mask,
-        pixelKey
+        pixelKey,
+        lut
       );
       const alpha = this.getMaskAlpha(local.maskDataUrl, localMask, width, height);
 
@@ -511,11 +516,11 @@ export class RenderEngine {
     }
 
     if (!canvas) {
-      this.adjusted.delete(layerId);
+      this.adjusted.delete(cacheId);
       return null;
     }
 
-    this.adjusted.set(layerId, { signature, canvas });
+    this.adjusted.set(cacheId, { signature, canvas });
     return canvas;
   }
 
@@ -853,7 +858,9 @@ export async function renderDocument(
 
       const adjustments = effectiveAdjustments(layer);
       const local = isLocalNeutral(layer.local) ? undefined : layer.local;
-      const flat = areCurvesNeutral(layer.curves) && isFocusNeutral(layer.focus) && !local;
+      const lut = shaderLut(layer.lut);
+      const flat =
+        areCurvesNeutral(layer.curves) && isFocusNeutral(layer.focus) && !local && !lut;
       if (!adjustments && flat) return null;
 
       const base = adjustments ?? NEUTRAL_ADJUSTMENTS;
@@ -868,7 +875,9 @@ export async function renderDocument(
         base,
         layer.curves,
         layer.focus,
-        focusMask
+        focusMask,
+        undefined,
+        lut
       );
 
       // The export has to see the same regions the screen does, or the saved
@@ -891,7 +900,9 @@ export async function renderDocument(
         boosted,
         layer.curves,
         layer.focus,
-        focusMask
+        focusMask,
+        undefined,
+        lut
       );
       const alpha = alphaFromLuminance(localMask, width, height);
       if (!region || !alpha) return canvas;

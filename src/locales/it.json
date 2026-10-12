@@ -528,5 +528,9 @@
   "blend.color": "Colore",
   "blend.luminosity": "Luminosità",
   "adjust.dehaze": "Foschia",
-  "adjust.mono": "Bianco e nero"
+  "adjust.mono": "Bianco e nero",
+  "colour.lut": "Tabella colore (LUT)",
+  "colour.lut.load": "Carica un file .cube",
+  "colour.lut.remove": "Rimuovi la LUT",
+  "colour.lut.unreadable": "«{name}» non è una LUT leggibile: {reason}."
 }

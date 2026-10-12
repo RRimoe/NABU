@@ -1,5 +1,6 @@
 // src/components/ColourPanel.tsx
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { FileUp, X } from 'lucide-react';
 import { useDocumentStore, useActiveDocument } from '../store/documentStore';
 import {
   type Adjustments,
@@ -7,6 +8,7 @@ import {
   NEUTRAL_ADJUSTMENTS,
 } from '../types/document';
 import { MIX_BANDS } from '../engine/adjustments';
+import { encodeTable, parseCube } from '../engine/lut';
 import { useT } from '../i18n';
 
 type Band = (typeof MIX_BANDS)[number];
@@ -40,8 +42,10 @@ const GRADES = [
  */
 export const ColourPanel: React.FC = () => {
   const doc = useActiveDocument();
-  const { setAdjustment, commitAdjustments } = useDocumentStore();
+  const { setAdjustment, commitAdjustments, setLayerLut } = useDocumentStore();
   const [band, setBand] = useState<Band>('Blue');
+  const [lutError, setLutError] = useState<string | null>(null);
+  const lutInput = useRef<HTMLInputElement>(null);
   const t = useT();
 
   const layerId = doc?.activeLayerId ?? null;
@@ -79,6 +83,20 @@ export const ColourPanel: React.FC = () => {
       </div>
     );
   };
+
+  /** Reads a .cube file and puts it on the layer at full strength. */
+  const loadLut = async (file: File) => {
+    try {
+      const { size, rgb, title } = parseCube(await file.text());
+      const name = title || file.name.replace(/\.cube$/i, '');
+      setLayerLut(layerId, { name, size, data: encodeTable(rgb), amount: 1 });
+      setLutError(null);
+    } catch (err) {
+      setLutError(t('colour.lut.unreadable', { name: file.name, reason: String((err as Error).message ?? err) }));
+    }
+  };
+
+  const lut = layer.lut;
 
   const bandTouched = (b: Band) =>
     values[`mix${b}Hue`] !== 0 || values[`mix${b}Sat`] !== 0 || values[`mix${b}Lum`] !== 0;
@@ -130,6 +148,63 @@ export const ColourPanel: React.FC = () => {
           </div>
         ))}
         {slider('gradeBalance', 'colour.balance')}
+      </section>
+
+      <section className="adjust-group">
+        <h4 className="adjust-group-title">{t('colour.lut')}</h4>
+        <input
+          ref={lutInput}
+          type="file"
+          accept=".cube"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void loadLut(file);
+            e.target.value = '';
+          }}
+        />
+        {lut ? (
+          <>
+            <div className="lut-row">
+              <span className="lut-name" title={lut.name}>
+                {lut.name}
+              </span>
+              <span className="lut-size">{lut.size}³</span>
+              <button
+                className="bubble-dismiss"
+                onClick={() => setLayerLut(layerId, null)}
+                title={t('colour.lut.remove')}
+              >
+                <X size={12} />
+              </button>
+            </div>
+            <div className={`adjust-row modified`}>
+              <label className="adjust-name" htmlFor="lut-amount">
+                {t('colour.amount')}
+              </label>
+              <input
+                id="lut-amount"
+                className="adjust-slider"
+                type="range"
+                min={0}
+                max={100}
+                value={Math.round(lut.amount * 100)}
+                onChange={(e) =>
+                  setLayerLut(layerId, { ...lut, amount: Number(e.target.value) / 100 }, { history: false })
+                }
+                onPointerUp={() => setLayerLut(layerId, { ...lut })}
+                onKeyUp={() => setLayerLut(layerId, { ...lut })}
+              />
+              <span className="adjust-value">{Math.round(lut.amount * 100)}</span>
+            </div>
+          </>
+        ) : (
+          <button className="lut-load" onClick={() => lutInput.current?.click()}>
+            <FileUp size={13} />
+            <span>{t('colour.lut.load')}</span>
+          </button>
+        )}
+        {lutError && <p className="resize-note">{lutError}</p>}
       </section>
     </div>
   );

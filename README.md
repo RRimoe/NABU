@@ -157,6 +157,7 @@ Building: `npm run build:llm`. Tests: `cargo test --all-targets` in
       colour grading of shadows, midtones and highlights
 - [x] Dehaze, black and white with a mix, and the hue, saturation, colour
       and luminosity blend modes
+- [x] Colour lookup tables: load any .cube file onto a layer, with an amount
 
 **Next**
 
