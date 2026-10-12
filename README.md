@@ -153,6 +153,8 @@ Building: `npm run build:llm`. Tests: `cargo test --all-targets` in
 - [x] Before and after: hold \\ to see the original, Y for a draggable split
 - [x] Your own looks, saved from the sliders, and copy/paste of settings
       between photos (Ctrl+Shift+C / Ctrl+Shift+V)
+- [x] Colour mixer (hue, saturation, luminance of eight colour bands) and
+      colour grading of shadows, midtones and highlights
 
 **Next**
 

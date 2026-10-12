@@ -28,6 +28,7 @@ import { useActivityStore } from './store/activityStore';
 import { copySelection, pasteClipboard } from './ops/clipboard';
 import { loadImage } from './engine/RenderEngine';
 import { ExportPopover } from './components/ExportPopover';
+import { ColourPanel } from './components/ColourPanel';
 import { downloadBlob, safeFileName } from './ops/export';
 import { copyDevelop, pasteDevelop } from './ops/develop';
 import {
@@ -351,6 +352,13 @@ function App() {
                   <span>{t('panels.adjust')}</span>
                 </header>
                 <AdjustPanel />
+              </section>
+
+              <section className="side-panel">
+                <header className="side-panel-header">
+                  <span>{t('panels.colour')}</span>
+                </header>
+                <ColourPanel />
               </section>
 
               <section className="side-panel">

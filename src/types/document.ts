@@ -143,6 +143,44 @@ export interface Adjustments {
   bloom: number;
   /** Colour fringing towards the corners, the way a cheap lens does it. */
   aberration: number;
+
+  // Colour mixer: hue, saturation and luminance of eight colour bands, so one
+  // colour can be changed without touching the others ("bluer sky, same skin").
+  mixRedHue: number;
+  mixRedSat: number;
+  mixRedLum: number;
+  mixOrangeHue: number;
+  mixOrangeSat: number;
+  mixOrangeLum: number;
+  mixYellowHue: number;
+  mixYellowSat: number;
+  mixYellowLum: number;
+  mixGreenHue: number;
+  mixGreenSat: number;
+  mixGreenLum: number;
+  mixAquaHue: number;
+  mixAquaSat: number;
+  mixAquaLum: number;
+  mixBlueHue: number;
+  mixBlueSat: number;
+  mixBlueLum: number;
+  mixPurpleHue: number;
+  mixPurpleSat: number;
+  mixPurpleLum: number;
+  mixMagentaHue: number;
+  mixMagentaSat: number;
+  mixMagentaLum: number;
+
+  // Colour grading: a tint for the shadows, the midtones and the highlights.
+  // Hues are in degrees, 0..360; a tint with no saturation does nothing.
+  gradeShadowHue: number;
+  gradeShadowSat: number;
+  gradeMidHue: number;
+  gradeMidSat: number;
+  gradeHighlightHue: number;
+  gradeHighlightSat: number;
+  /** Moves the line between shadows and highlights, -100..100. */
+  gradeBalance: number;
 }
 
 export const NEUTRAL_ADJUSTMENTS: Adjustments = {
@@ -164,6 +202,37 @@ export const NEUTRAL_ADJUSTMENTS: Adjustments = {
   grain: 0,
   bloom: 0,
   aberration: 0,
+  mixRedHue: 0,
+  mixRedSat: 0,
+  mixRedLum: 0,
+  mixOrangeHue: 0,
+  mixOrangeSat: 0,
+  mixOrangeLum: 0,
+  mixYellowHue: 0,
+  mixYellowSat: 0,
+  mixYellowLum: 0,
+  mixGreenHue: 0,
+  mixGreenSat: 0,
+  mixGreenLum: 0,
+  mixAquaHue: 0,
+  mixAquaSat: 0,
+  mixAquaLum: 0,
+  mixBlueHue: 0,
+  mixBlueSat: 0,
+  mixBlueLum: 0,
+  mixPurpleHue: 0,
+  mixPurpleSat: 0,
+  mixPurpleLum: 0,
+  mixMagentaHue: 0,
+  mixMagentaSat: 0,
+  mixMagentaLum: 0,
+  gradeShadowHue: 0,
+  gradeShadowSat: 0,
+  gradeMidHue: 0,
+  gradeMidSat: 0,
+  gradeHighlightHue: 0,
+  gradeHighlightSat: 0,
+  gradeBalance: 0,
 };
 
 /**
@@ -192,13 +261,44 @@ export const ADJUSTMENT_RANGES: Record<keyof Adjustments, [number, number]> = {
   grain: [0, 100],
   bloom: [0, 100],
   aberration: [0, 100],
+  mixRedHue: [-100, 100],
+  mixRedSat: [-100, 100],
+  mixRedLum: [-100, 100],
+  mixOrangeHue: [-100, 100],
+  mixOrangeSat: [-100, 100],
+  mixOrangeLum: [-100, 100],
+  mixYellowHue: [-100, 100],
+  mixYellowSat: [-100, 100],
+  mixYellowLum: [-100, 100],
+  mixGreenHue: [-100, 100],
+  mixGreenSat: [-100, 100],
+  mixGreenLum: [-100, 100],
+  mixAquaHue: [-100, 100],
+  mixAquaSat: [-100, 100],
+  mixAquaLum: [-100, 100],
+  mixBlueHue: [-100, 100],
+  mixBlueSat: [-100, 100],
+  mixBlueLum: [-100, 100],
+  mixPurpleHue: [-100, 100],
+  mixPurpleSat: [-100, 100],
+  mixPurpleLum: [-100, 100],
+  mixMagentaHue: [-100, 100],
+  mixMagentaSat: [-100, 100],
+  mixMagentaLum: [-100, 100],
+  gradeShadowHue: [0, 360],
+  gradeShadowSat: [0, 100],
+  gradeMidHue: [0, 360],
+  gradeMidSat: [0, 100],
+  gradeHighlightHue: [0, 360],
+  gradeHighlightSat: [0, 100],
+  gradeBalance: [-100, 100],
 };
 
 /** True when nothing would change, so the processing pass can be skipped. */
 export function isNeutral(adjustments?: Adjustments): boolean {
   if (!adjustments) return true;
   return (Object.keys(NEUTRAL_ADJUSTMENTS) as Array<keyof Adjustments>).every(
-    (key) => adjustments[key] === 0
+    (key) => !adjustments[key]
   );
 }
 

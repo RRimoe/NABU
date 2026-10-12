@@ -117,6 +117,25 @@ uniform float u_bloom;
 uniform float u_aberration;
 uniform float u_seed;
 
+// Colour mixer, one entry per band: red, orange, yellow, green, aqua, blue,
+// purple, magenta. Hue in degrees of rotation, saturation and luminance as
+// fractions.
+uniform float u_mixHue[8];
+uniform float u_mixSat[8];
+uniform float u_mixLum[8];
+uniform float u_hasMix;
+
+// Colour grading: the colour added to each tonal range, already scaled by its
+// saturation and with its own brightness taken out.
+uniform vec3 u_gradeShadow;
+uniform vec3 u_gradeMid;
+uniform vec3 u_gradeHighlight;
+uniform float u_gradeBalance;
+uniform float u_hasGrade;
+
+/** Centre of each mixer band on the hue circle, in degrees. */
+const float BAND_CENTRES[8] = float[8](0.0, 30.0, 60.0, 120.0, 180.0, 240.0, 270.0, 300.0);
+
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 
 /** Brightness a pixel has to pass before it is allowed to glow. */
@@ -144,6 +163,87 @@ vec3 applyHue(vec3 colour, float degrees) {
     0.299 - 0.300 * c + 1.250 * s, 0.587 - 0.588 * c - 1.050 * s, 0.114 + 0.886 * c - 0.203 * s
   );
   return clamp(colour * m, 0.0, 1.0);
+}
+
+vec3 rgbToHsv(vec3 c) {
+  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+  float d = q.x - min(q.w, q.y);
+  float e = 1.0e-10;
+  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+vec3 hsvToRgb(vec3 c) {
+  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+/** Shortest distance between two hues, in degrees. */
+float hueDistance(float a, float b) {
+  float d = abs(a - b);
+  return min(d, 360.0 - d);
+}
+
+/**
+ * The colour mixer. Each pixel takes a blend of the bands its hue sits
+ * between, weighted by how close it is to each centre, so moving one band
+ * never leaves a hard edge where two colours meet. Greys have no hue, so the
+ * effect fades out with saturation: a white wall does not turn blue because
+ * the blues were pushed.
+ */
+vec3 applyMixer(vec3 colour) {
+  vec3 hsv = rgbToHsv(colour);
+  float hue = hsv.x * 360.0;
+
+  float shift = 0.0;
+  float sat = 0.0;
+  float lum = 0.0;
+  float total = 0.0;
+  for (int i = 0; i < 8; i++) {
+    int next = i == 7 ? 0 : i + 1;
+    int prev = i == 0 ? 7 : i - 1;
+    // Each band reaches as far as its neighbours' centres.
+    float reach = 0.5 * (hueDistance(BAND_CENTRES[i], BAND_CENTRES[next]) +
+                         hueDistance(BAND_CENTRES[i], BAND_CENTRES[prev]));
+    float w = max(0.0, 1.0 - hueDistance(hue, BAND_CENTRES[i]) / reach);
+    w = w * w * (3.0 - 2.0 * w);
+    shift += u_mixHue[i] * w;
+    sat += u_mixSat[i] * w;
+    lum += u_mixLum[i] * w;
+    total += w;
+  }
+  if (total < 0.0001) return colour;
+  shift /= total;
+  sat /= total;
+  lum /= total;
+
+  float presence = smoothstep(0.02, 0.25, hsv.y);
+  hsv.x = fract((hue + shift * presence) / 360.0 + 1.0);
+  hsv.y = clamp(hsv.y * (1.0 + sat * presence), 0.0, 1.0);
+  vec3 result = hsvToRgb(hsv);
+  // Luminance moves the colour towards black or white, scaled the same way.
+  float amount = lum * presence;
+  result = amount >= 0.0 ? mix(result, vec3(1.0), amount * 0.5)
+                         : mix(result, vec3(0.0), -amount * 0.5);
+  return clamp(result, 0.0, 1.0);
+}
+
+/**
+ * Colour grading: shadows, midtones and highlights each take their own tint.
+ * The tints carry no brightness of their own, so a grade changes the mood of
+ * a picture without making it lighter or darker.
+ */
+vec3 applyGrade(vec3 colour) {
+  float lum = luminance(colour);
+  // Balance slides the crossover point between shadows and highlights.
+  float pivot = clamp(0.5 - u_gradeBalance * 0.3, 0.15, 0.85);
+  float shadow = 1.0 - smoothstep(0.0, pivot, lum);
+  float highlight = smoothstep(pivot, 1.0, lum);
+  float mid = clamp(1.0 - shadow - highlight, 0.0, 1.0);
+  vec3 tint = u_gradeShadow * shadow + u_gradeMid * mid + u_gradeHighlight * highlight;
+  return clamp(colour + tint * 0.35, 0.0, 1.0);
 }
 
 /**
@@ -298,6 +398,12 @@ void main() {
 
   colour = applyHue(colour, u_hue);
 
+  // --- Colour mixer and grading ------------------------------------------
+  // After the global colour, so a mixer band acts on the colours the user is
+  // looking at; before the curves, which finish the picture.
+  if (u_hasMix > 0.5) colour = applyMixer(colour);
+  if (u_hasGrade > 0.5) colour = applyGrade(colour);
+
   // --- Tone curves --------------------------------------------------------
   // Last of the colour stages, so the curve grades the finished tones rather
   // than a half-corrected image: the order every photo editor uses.
@@ -384,6 +490,61 @@ function uniformsFor(a: Adjustments) {
     u_grain: Math.max(0, a.grain) / 100,
     u_bloom: Math.max(0, a.bloom) / 100,
     u_aberration: Math.max(0, a.aberration) / 100,
+  };
+}
+
+/** The mixer bands, in the order the shader's arrays hold them. */
+export const MIX_BANDS = [
+  'Red',
+  'Orange',
+  'Yellow',
+  'Green',
+  'Aqua',
+  'Blue',
+  'Purple',
+  'Magenta',
+] as const;
+
+/** Largest hue rotation a mixer band can apply, in degrees. */
+const MIX_MAX_SHIFT = 30;
+
+/**
+ * A grading tint as an RGB offset: the hue at full strength, with its own
+ * luminance removed so adding it shifts colour but not brightness.
+ */
+function gradeTint(hue: number, saturation: number): Float32Array {
+  const h = ((((hue ?? 0) % 360) + 360) % 360) / 60;
+  const x = 1 - Math.abs((h % 2) - 1);
+  const [r, g, b] =
+    h < 1 ? [1, x, 0] : h < 2 ? [x, 1, 0] : h < 3 ? [0, 1, x] : h < 4 ? [0, x, 1] : h < 5 ? [x, 0, 1] : [1, 0, x];
+  const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const amount = Math.max(0, saturation ?? 0) / 100;
+  return new Float32Array([(r - luma) * amount, (g - luma) * amount, (b - luma) * amount]);
+}
+
+/** Mixer and grading values in the shapes the shader takes them. */
+export function colourUniforms(a: Adjustments) {
+  const mixHue = new Float32Array(8);
+  const mixSat = new Float32Array(8);
+  const mixLum = new Float32Array(8);
+  MIX_BANDS.forEach((band, i) => {
+    mixHue[i] = ((a[`mix${band}Hue`] ?? 0) / 100) * MIX_MAX_SHIFT;
+    mixSat[i] = (a[`mix${band}Sat`] ?? 0) / 100;
+    mixLum[i] = (a[`mix${band}Lum`] ?? 0) / 100;
+  });
+  const hasMix = [...mixHue, ...mixSat, ...mixLum].some((value) => value !== 0);
+  const hasGrade =
+    (a.gradeShadowSat ?? 0) > 0 || (a.gradeMidSat ?? 0) > 0 || (a.gradeHighlightSat ?? 0) > 0;
+  return {
+    mixHue,
+    mixSat,
+    mixLum,
+    hasMix,
+    shadow: gradeTint(a.gradeShadowHue, a.gradeShadowSat),
+    mid: gradeTint(a.gradeMidHue, a.gradeMidSat),
+    highlight: gradeTint(a.gradeHighlightHue, a.gradeHighlightSat),
+    balance: (a.gradeBalance ?? 0) / 100,
+    hasGrade,
   };
 }
 
@@ -763,6 +924,17 @@ export class AdjustmentProcessor {
       for (const [name, value] of Object.entries(uniformsFor(adjustments))) {
         gl.uniform1f(gl.getUniformLocation(program, name), value);
       }
+
+      const colour = colourUniforms(adjustments);
+      gl.uniform1fv(gl.getUniformLocation(program, 'u_mixHue'), colour.mixHue);
+      gl.uniform1fv(gl.getUniformLocation(program, 'u_mixSat'), colour.mixSat);
+      gl.uniform1fv(gl.getUniformLocation(program, 'u_mixLum'), colour.mixLum);
+      gl.uniform1f(gl.getUniformLocation(program, 'u_hasMix'), colour.hasMix ? 1 : 0);
+      gl.uniform3fv(gl.getUniformLocation(program, 'u_gradeShadow'), colour.shadow);
+      gl.uniform3fv(gl.getUniformLocation(program, 'u_gradeMid'), colour.mid);
+      gl.uniform3fv(gl.getUniformLocation(program, 'u_gradeHighlight'), colour.highlight);
+      gl.uniform1f(gl.getUniformLocation(program, 'u_gradeBalance'), colour.balance);
+      gl.uniform1f(gl.getUniformLocation(program, 'u_hasGrade'), colour.hasGrade ? 1 : 0);
 
       this.drawQuad(program);
 
