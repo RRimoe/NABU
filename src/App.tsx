@@ -29,6 +29,7 @@ import { copySelection, pasteClipboard } from './ops/clipboard';
 import { loadImage } from './engine/RenderEngine';
 import { ExportPopover } from './components/ExportPopover';
 import { ColourPanel } from './components/ColourPanel';
+import { MasksPanel } from './components/MasksPanel';
 import { downloadBlob, safeFileName } from './ops/export';
 import { copyDevelop, pasteDevelop } from './ops/develop';
 import {
@@ -359,6 +360,13 @@ function App() {
                   <span>{t('panels.colour')}</span>
                 </header>
                 <ColourPanel />
+              </section>
+
+              <section className="side-panel">
+                <header className="side-panel-header">
+                  <span>{t('panels.masks')}</span>
+                </header>
+                <MasksPanel />
               </section>
 
               <section className="side-panel">

@@ -158,6 +158,8 @@ Building: `npm run build:llm`. Tests: `cargo test --all-targets` in
 - [x] Dehaze, black and white with a mix, and the hue, saturation, colour
       and luminosity blend modes
 - [x] Colour lookup tables: load any .cube file onto a layer, with an amount
+- [x] Masks: any number of linear and radial gradients, brightness ranges and
+      selections per layer, each with its own sliders, moved on the photo
 
 **Next**
 
@@ -177,7 +179,7 @@ Building: `npm run build:llm`. Tests: `cargo test --all-targets` in
 - [ ] Text: read it (RapidOCR, Apache-2.0), translate it, remove it
 - [ ] Faces as a capability (YuNet, MIT) — find them, work on them by name
 - [ ] Semantic segmentation for sky and ground (PP-LiteSeg, Apache-2.0)
-- [ ] RAW import, batch processing, layer masks panel
+- [ ] RAW import, batch processing
 
 ---
 

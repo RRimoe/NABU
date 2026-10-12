@@ -3214,3 +3214,92 @@ body, html, #root {
   text-align: center;
   color: var(--text-dim);
 }
+
+/* --- Masks ------------------------------------------------------------------ */
+
+.mask-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mask-list li { display: flex; align-items: center; gap: 4px; }
+
+.mask-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-card);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mask-item:hover { border-color: var(--border-color); }
+.mask-item.on { border-color: var(--accent); }
+.mask-item.idle { color: var(--text-muted); }
+
+.mask-index {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.mask-item.idle .mask-index { background: var(--text-muted); }
+
+.mask-editor { padding-top: 4px; }
+
+.mask-invert {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 11.5px;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.mask-guide {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.mask-line {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8));
+}
+
+.mask-line.soft { stroke-dasharray: 5 4; stroke-width: 1; }
+.mask-line.axis { stroke-opacity: 0.45; stroke-width: 1; }
+
+.mask-handle {
+  pointer-events: all;
+  fill: var(--accent);
+  stroke: #fff;
+  stroke-width: 2;
+  cursor: grab;
+}
+
+.mask-handle.small { fill: #fff; stroke: var(--accent); }
+.mask-guide.dragging .mask-handle { cursor: grabbing; }

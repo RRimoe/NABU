@@ -23,6 +23,7 @@ import { refineByClick } from '../ai/operations';
 import { ActionBar } from './ActionBar';
 import { CropOverlay } from './CropOverlay';
 import { FocusGuide } from './FocusGuide';
+import { MaskGuide } from './MaskGuide';
 import { PasteChip } from './PasteChip';
 import { TransformBar } from './TransformBar';
 import { BrushBar } from './BrushBar';
@@ -876,6 +877,14 @@ export const CanvasViewport: React.FC = () => {
           and tied to the effect being active it never went away. */}
       {focusEditing && !cropping && !refineMode && !transforming && (
         <FocusGuide
+          containerWidth={containerSize.width}
+          containerHeight={containerSize.height}
+        />
+      )}
+
+      {/* Handles of the gradient mask being edited in the Masks panel. */}
+      {!cropping && !refineMode && !transforming && !painting && (
+        <MaskGuide
           containerWidth={containerSize.width}
           containerHeight={containerSize.height}
         />

@@ -16,6 +16,7 @@ import {
   NEUTRAL_CURVES,
   FocusEffect,
   LocalAdjustment,
+  LocalMask,
   areCurvesNeutral,
   isFocusNeutral,
   isLocalNeutral,
@@ -304,6 +305,19 @@ interface DocumentState {
    * (null). `history: false` while a slider is being dragged.
    */
   setLayerLut: (layerId: string, lut: LayerLut | null, options?: { history?: boolean }) => void;
+  /** Hand-made masks: added and removed with a step, edited live then committed. */
+  addMask: (layerId: string, mask: LocalMask) => void;
+  updateMask: (
+    layerId: string,
+    maskId: string,
+    patch: Partial<LocalMask>,
+    options?: { history?: boolean }
+  ) => void;
+  commitMasks: (layerId: string) => void;
+  removeMask: (layerId: string, maskId: string) => void;
+  /** The mask whose sliders and on-canvas handles are showing. */
+  editingMaskId: string | null;
+  setEditingMask: (maskId: string | null) => void;
   /** Replaces a layer's sliders, curves and look in one step, as pasting does. */
   pasteDevelop: (layerId: string, develop: DevelopSettings) => void;
   /** Strength of the chosen look, 0..1. No history until committed. */
@@ -468,6 +482,14 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     return `${JSON.stringify(rest)}|${maskDataUrl?.length ?? 0}`;
   };
 
+  const maskSignature = (layerId: string) => (doc: NabuDocument) =>
+    JSON.stringify(
+      (doc.layers[layerId]?.masks ?? []).map((mask) => ({
+        ...mask,
+        maskDataUrl: mask.maskDataUrl?.length ?? 0,
+      }))
+    );
+
   const localSignature = (layerId: string) => (doc: NabuDocument) => {
     const local = doc.layers[layerId]?.local;
     if (!local) return '';
@@ -602,7 +624,13 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     setActiveDocument: (id) => {
       if (!get().sessions[id]) return;
       // Both of these describe work on the photo being left behind.
-      set({ activeId: id, refineMode: null, focusEditing: false, welcomeDismissed: false });
+      set({
+        activeId: id,
+        refineMode: null,
+        focusEditing: false,
+        editingMaskId: null,
+        welcomeDismissed: false,
+      });
     },
 
     // --- Viewport --------------------------------------------------------
@@ -1108,6 +1136,47 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         }
         return { ...current, layers: { ...current.layers, [layerId]: next } };
       }),
+
+    addMask: (layerId, mask) => {
+      commit((current) => {
+        const layer = current.layers[layerId];
+        if (!layer) return current;
+        const masks = [...(layer.masks ?? []), mask];
+        return { ...current, layers: { ...current.layers, [layerId]: { ...layer, masks } } };
+      });
+      set({ editingMaskId: mask.id });
+    },
+
+    updateMask: (layerId, maskId, patch, options = {}) =>
+      commit(
+        (current) => {
+          const layer = current.layers[layerId];
+          if (!layer?.masks) return current;
+          const masks = layer.masks.map((mask) =>
+            mask.id === maskId ? { ...mask, ...patch } : mask
+          );
+          return { ...current, layers: { ...current.layers, [layerId]: { ...layer, masks } } };
+        },
+        // Sliders and handles move continuously; the gesture's end commits.
+        { history: options.history ?? false }
+      ),
+
+    commitMasks: (layerId) => commitIfChanged(maskSignature(layerId), (current) => current),
+
+    removeMask: (layerId, maskId) => {
+      commit((current) => {
+        const layer = current.layers[layerId];
+        if (!layer?.masks) return current;
+        const next: LayerNode = { ...layer, masks: layer.masks.filter((m) => m.id !== maskId) };
+        if (next.masks!.length === 0) delete next.masks;
+        return { ...current, layers: { ...current.layers, [layerId]: next } };
+      });
+      set((state) => (state.editingMaskId === maskId ? { editingMaskId: null } : state));
+    },
+
+    editingMaskId: null,
+    setEditingMask: (maskId) =>
+      set((state) => (state.editingMaskId === maskId ? state : { editingMaskId: maskId })),
 
     setLayerLut: (layerId, lut, options) =>
       commit((current) => {

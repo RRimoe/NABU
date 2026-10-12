@@ -81,6 +81,11 @@ export interface LayerNode {
   focus?: FocusEffect;
   /** Corrections confined to one region; absent means none. */
   local?: LocalAdjustment;
+  /**
+   * Masked corrections the user builds by hand: gradients, a brightness range,
+   * a selection. Applied in order, each on top of the ones before it.
+   */
+  masks?: LocalMask[];
   /** Look chosen from the filter panel, layered on top of the sliders. */
   filter?: LayerFilter;
   /** A 3D colour lookup table loaded from a .cube file. */
@@ -467,6 +472,61 @@ export interface LocalAdjustment {
 export function isLocalNeutral(local?: LocalAdjustment): boolean {
   if (!local || !local.maskDataUrl || local.amount <= 0) return true;
   return Object.values(local.adjustments).every((value) => !value);
+}
+
+// --- Masks -------------------------------------------------------------------
+
+export type LocalMaskKind = 'linear' | 'radial' | 'luminance' | 'selection';
+
+/**
+ * One masked correction, the way a photo editor's mask panel holds them.
+ *
+ * Geometry is stored in fractions of the layer, not in pixels, so a mask
+ * survives a resize and means the same thing on a preview and on the export.
+ * The adjustments are deltas on top of the layer's own sliders.
+ */
+export interface LocalMask {
+  id: string;
+  kind: LocalMaskKind;
+  /** Flips what the mask covers: "everything but the sky". */
+  invert: boolean;
+  /** Scales every delta at once, 0..1. */
+  amount: number;
+  adjustments: Partial<Adjustments>;
+  /** Full effect at (x0, y0), fading to none at (x1, y1). */
+  linear?: { x0: number; y0: number; x1: number; y1: number };
+  /** Ellipse centred on (cx, cy); feather is the soft share of the radius, 0..1. */
+  radial?: { cx: number; cy: number; rx: number; ry: number; feather: number };
+  /** Brightness band, 0..100, with a soft edge of `smooth` either side. */
+  luminance?: { low: number; high: number; smooth: number };
+  /** Greyscale PNG for selection masks: white where the mask applies. */
+  maskDataUrl?: string;
+}
+
+/** The sliders a mask offers: the ones that make sense on part of a photo. */
+export const MASK_ADJUSTMENTS = [
+  'exposure',
+  'contrast',
+  'highlights',
+  'shadows',
+  'temperature',
+  'tint',
+  'saturation',
+  'clarity',
+  'dehaze',
+  'sharpness',
+] as const satisfies ReadonlyArray<keyof Adjustments>;
+
+/** True when the mask would change nothing. */
+export function isMaskNeutral(mask: LocalMask): boolean {
+  if (mask.amount <= 0) return true;
+  if (mask.kind === 'selection' && !mask.maskDataUrl) return true;
+  return Object.values(mask.adjustments).every((value) => !value);
+}
+
+/** Masks that actually do something, in the order they apply. */
+export function activeMasks(masks?: LocalMask[]): LocalMask[] {
+  return (masks ?? []).filter((mask) => !isMaskNeutral(mask));
 }
 
 // --- Filters -----------------------------------------------------------------

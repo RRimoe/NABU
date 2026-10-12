@@ -4,12 +4,15 @@ import { curvesKey } from './curves';
 import { effectiveAdjustments } from './filters';
 import { shaderLut } from './lut';
 import { alphaFromLuminance, compositeThroughMask } from './maskAlpha';
+import { applyMasks, maskShapeKey, masksKey, rasteriseMask } from './localMasks';
 import {
   NabuDocument,
   LayerNode,
   Adjustments,
   FocusEffect,
   LocalAdjustment,
+  LocalMask,
+  activeMasks,
   ViewportTransform,
   BlendMode,
   ThemeMode,
@@ -307,6 +310,7 @@ export class RenderEngine {
    * once per frame is the difference between a live slider and a slideshow.
    */
   private maskAlpha = new Map<string, HTMLCanvasElement>();
+  private maskCoverage = new Map<string, HTMLCanvasElement>();
 
   constructor(canvas: HTMLCanvasElement, onImageLoaded?: () => void) {
     this.canvas = canvas;
@@ -435,7 +439,15 @@ export class RenderEngine {
     const flatCurves = areCurvesNeutral(curves);
     const flatFocus = isFocusNeutral(focus);
     const lut = shaderLut(layer.lut);
-    if (!adjustments && flatCurves && flatFocus && isLocalNeutral(layer.local) && !lut) {
+    const masks = activeMasks(layer.masks);
+    if (
+      !adjustments &&
+      flatCurves &&
+      flatFocus &&
+      isLocalNeutral(layer.local) &&
+      !lut &&
+      masks.length === 0
+    ) {
       this.adjusted.delete(cacheId);
       return null;
     }
@@ -459,6 +471,9 @@ export class RenderEngine {
       localKey(local),
       localMask ? 1 : 0,
       lut?.key ?? '',
+      masksKey(masks),
+      // A selection mask that has not decoded yet must not be cached as final.
+      masks.filter((m) => m.maskDataUrl && this.getImage(m.maskDataUrl)).length,
     ].join('#');
     const signature = `${layer.imageDataUrl?.length ?? 0}|${width}x${height}|${key}`;
     const cached = this.adjusted.get(cacheId);
@@ -515,6 +530,18 @@ export class RenderEngine {
       }
     }
 
+    if (masks.length > 0) {
+      const masked = applyMasks(
+        canvas ?? image,
+        width,
+        height,
+        masks,
+        (input, values) => this.adjuster.process(input, width, height, values),
+        (m) => this.getMaskCoverage(m, image, pixelKey, width, height)
+      );
+      if (masked !== image) canvas = masked as HTMLCanvasElement;
+    }
+
     if (!canvas) {
       this.adjusted.delete(cacheId);
       return null;
@@ -537,6 +564,31 @@ export class RenderEngine {
 
     const built = alphaFromLuminance(image, width, height);
     if (built) this.maskAlpha.set(key, built);
+    return built;
+  }
+
+  /**
+   * Cached coverage of a hand-made mask. Keyed by shape and by the pixels it
+   * reads, so dragging a slider inside a mask never redraws the mask itself.
+   */
+  private getMaskCoverage(
+    mask: LocalMask,
+    image: HTMLImageElement,
+    pixelKey: string,
+    width: number,
+    height: number
+  ): HTMLCanvasElement | null {
+    const selection = mask.maskDataUrl ? this.getImage(mask.maskDataUrl) : null;
+    if (mask.kind === 'selection' && !selection) return null;
+    const key = `${mask.kind === 'luminance' ? pixelKey : ''}|${width}x${height}|${maskShapeKey(mask)}`;
+    const cached = this.maskCoverage.get(key);
+    if (cached) return cached;
+    const built = rasteriseMask(mask, image, width, height, selection);
+    if (built) {
+      // Old shapes are useless once a handle has moved; keep the cache small.
+      if (this.maskCoverage.size > 32) this.maskCoverage.clear();
+      this.maskCoverage.set(key, built);
+    }
     return built;
   }
 
@@ -827,6 +879,7 @@ export async function renderDocument(
           doc.layers[id]?.imageDataUrl,
           doc.layers[id]?.focus?.maskDataUrl,
           doc.layers[id]?.local?.maskDataUrl,
+          ...(doc.layers[id]?.masks ?? []).map((mask) => mask.maskDataUrl),
         ])
         .filter((src): src is string => Boolean(src))
     )
@@ -859,9 +912,35 @@ export async function renderDocument(
       const adjustments = effectiveAdjustments(layer);
       const local = isLocalNeutral(layer.local) ? undefined : layer.local;
       const lut = shaderLut(layer.lut);
+      const masks = activeMasks(layer.masks);
       const flat =
-        areCurvesNeutral(layer.curves) && isFocusNeutral(layer.focus) && !local && !lut;
+        areCurvesNeutral(layer.curves) &&
+        isFocusNeutral(layer.focus) &&
+        !local &&
+        !lut &&
+        masks.length === 0;
       if (!adjustments && flat) return null;
+
+      // Hand-made masks go on last, over whatever the rest of the pipeline made.
+      const finish = (canvas: HTMLCanvasElement | null) => {
+        if (masks.length === 0) return canvas;
+        const masked = applyMasks(
+          canvas ?? image,
+          width,
+          height,
+          masks,
+          (input, values) => adjuster.process(input, width, height, values),
+          (m) =>
+            rasteriseMask(
+              m,
+              image,
+              width,
+              height,
+              m.maskDataUrl ? (resolved.get(m.maskDataUrl) ?? null) : null
+            )
+        );
+        return masked === image ? canvas : (masked as HTMLCanvasElement);
+      };
 
       const base = adjustments ?? NEUTRAL_ADJUSTMENTS;
       const focusMask = layer.focus?.maskDataUrl
@@ -883,7 +962,7 @@ export async function renderDocument(
       // The export has to see the same regions the screen does, or the saved
       // file is a different photograph from the one that was approved.
       const localMask = local ? resolved.get(local.maskDataUrl) : undefined;
-      if (!local || !localMask) return canvas;
+      if (!local || !localMask) return finish(canvas);
 
       const boosted = { ...base };
       for (const [name, value] of Object.entries(local.adjustments) as Array<
@@ -905,9 +984,9 @@ export async function renderDocument(
         lut
       );
       const alpha = alphaFromLuminance(localMask, width, height);
-      if (!region || !alpha) return canvas;
+      if (!region || !alpha) return finish(canvas);
 
-      return compositeThroughMask(canvas ?? image, region, alpha, width, height) ?? canvas;
+      return finish(compositeThroughMask(canvas ?? image, region, alpha, width, height) ?? canvas);
     }
   );
 
