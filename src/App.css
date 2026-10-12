@@ -3420,3 +3420,89 @@ body, html, #root {
 }
 
 .empty-panorama:hover { color: var(--accent); background: var(--bg-card); }
+
+/* --- Batch ------------------------------------------------------------------- */
+
+.batch-files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.batch-file {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 6px 30px 6px 10px;
+  border-radius: 7px;
+  background: var(--bg-card);
+  font-size: 11.5px;
+  color: var(--text-main);
+}
+
+.batch-file span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-file .panorama-remove { top: 50%; transform: translateY(-50%); right: 6px; }
+
+.panorama-add.batch-add {
+  aspect-ratio: auto;
+  flex-direction: row;
+  padding: 10px 0;
+}
+
+.batch-files:not(:has(.batch-file)) .batch-add { padding: 22px 0; flex-direction: column; }
+
+.batch-select,
+.batch-suffix input {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.batch-quality,
+.batch-suffix {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.batch-quality input { width: 100%; accent-color: var(--accent); }
+
+.batch-folder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 7px 10px;
+  border: 1px dashed var(--border-color);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.batch-folder span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.batch-folder:hover:not(:disabled) { border-color: var(--accent); }
+
+.batch-summary { margin: 8px 0 4px; font-size: 12px; }
+.batch-summary p { margin: 0 0 6px; }

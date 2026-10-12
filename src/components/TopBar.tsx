@@ -14,6 +14,7 @@ import {
   Settings,
   Sun,
   Images,
+  Layers,
 } from 'lucide-react';
 import { useDocumentStore, useActiveDocument } from '../store/documentStore';
 import { useSceneStore } from '../store/sceneStore';
@@ -26,6 +27,7 @@ interface Props {
   onOpen: () => void;
   onExport: () => void;
   onPanorama: () => void;
+  onBatch: () => void;
   onSaveProject: () => void;
   onSettings: () => void;
   onResize: () => void;
@@ -46,6 +48,7 @@ export const TopBar: React.FC<Props> = ({
   onOpen,
   onExport,
   onPanorama,
+  onBatch,
   onSaveProject,
   onSettings,
   onResize,
@@ -146,6 +149,16 @@ export const TopBar: React.FC<Props> = ({
             >
               <Images size={14} />
               <span>{t('panorama.menu')}</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                onBatch();
+              }}
+            >
+              <Layers size={14} />
+              <span>{t('batch.menu')}</span>
             </button>
 
             <button

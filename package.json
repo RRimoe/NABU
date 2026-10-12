@@ -10,10 +10,12 @@
     "tauri": "tauri",
     "check:locales": "node scripts/check-locales.mjs",
     "tauri:llm": "tauri dev --features llm",
-    "build:llm": "tauri build --features llm"
+    "build:llm": "tauri build --features llm",
+    "check:commands": "node scripts/check-commands.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2.8.2",
     "@tauri-apps/plugin-opener": "^2",
     "lucide-react": "^1.28.0",
     "pixi.js": "^8.19.0",

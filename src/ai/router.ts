@@ -12,17 +12,8 @@ import { useDocumentStore } from '../store/documentStore';
 import { useActivityStore } from '../store/activityStore';
 import { useSceneStore } from '../store/sceneStore';
 import { sceneSummary } from '../types/scene';
-import { type Adjustments, NEUTRAL_ADJUSTMENTS } from '../types/document';
 import { interpret as matchKeywords } from './intents';
-import {
-  removeBackground,
-  upscale,
-  extractObject,
-  removeObjectByBbox,
-  removeSelectedRegion,
-} from './operations';
-import { resizeByPercent, resizeLongestSide, resizeDocument } from '../ops/resize';
-import { t } from '../i18n';
+import { findCommand, validate, coerceArgs } from '../commands';
 
 /** Mirrors `ToolCall` in src-tauri/src/ai/tools.rs. */
 export interface ToolCall {
@@ -37,141 +28,36 @@ export interface RouteOutcome {
   handled: boolean;
 }
 
-const ADJUSTMENT_KEYS = Object.keys(NEUTRAL_ADJUSTMENTS) as Array<keyof Adjustments>;
-
-/** Applies one adjustment to the active layer, relative to its current value. */
-function applyAdjustment(property: keyof Adjustments, amount: number): RouteOutcome {
-  const state = useDocumentStore.getState();
-  const session = state.sessions[state.activeId];
-  const doc = session?.document;
-  const layerId = doc?.activeLayerId;
-  if (!doc || !layerId) {
-    return { messageKey: 'error.noImageOpen', handled: false };
-  }
-
-  const current = { ...NEUTRAL_ADJUSTMENTS, ...doc.layers[layerId]?.adjustments };
-  // Requests are relative: "brighter" after "brighter" should keep going.
-  const next = Math.max(-100, Math.min(100, current[property] + amount));
-
-  state.setAdjustment(layerId, property, next);
-  state.commitAdjustments(layerId);
-
-  return {
-    messageKey: 'router.applied',
-    params: { property: t(`adjust.${property}`), value: next > 0 ? `+${next}` : `${next}` },
-    handled: true,
-  };
-}
-
-/** Carries out a tool call, whatever produced it. */
+/**
+ * Carries out a tool call, whatever produced it.
+ *
+ * The language model's vocabulary is a subset of the command registry, so a
+ * call runs exactly the code a script or an agent would run. Run directly
+ * rather than through `execute`: the person who typed is looking at the
+ * screen, and a failure should reach them as it does from a button.
+ */
 export async function runToolCall(call: ToolCall): Promise<RouteOutcome> {
-  switch (call.name) {
-    case 'remove_background':
-      await removeBackground();
-      return { messageKey: 'router.done', handled: true };
-
-    case 'cut_out_selection':
-      await extractObject();
-      return { messageKey: 'router.done', handled: true };
-
-    case 'select_object': {
-      // The id refers to the scene model built by the vision engine; the
-      // object's box becomes a normal selection, so everything that works on
-      // a selection (cut out, refine) now works on "the red car".
-      const id = Number(call.arguments.id);
-      const scene = useSceneStore.getState().activeScene();
-      const target = scene?.objects.find((o) => o.id === id);
-      if (!target) return { messageKey: 'command.notUnderstood', handled: false };
-
-      const state = useDocumentStore.getState();
-      const session = state.sessions[state.activeId];
-      const doc = session?.document;
-      const layer = doc?.activeLayerId ? doc.layers[doc.activeLayerId] : null;
-      if (!doc || !layer) return { messageKey: 'error.noImageOpen', handled: false };
-
-      const [x0, y0, x1, y1] = target.bbox;
-      const ox = layer.transform.x;
-      const oy = layer.transform.y;
-      state.setSelection({
-        path: [
-          { x: x0 + ox, y: y0 + oy },
-          { x: x1 + ox, y: y0 + oy },
-          { x: x1 + ox, y: y1 + oy },
-          { x: x0 + ox, y: y1 + oy },
-        ],
-      });
-      return { messageKey: 'router.selected', params: { id }, handled: true };
-    }
-
-    case 'upscale':
-      await upscale();
-      return { messageKey: 'router.done', handled: true };
-
-    case 'resize': {
-      const percent = Number(call.arguments.percent);
-      const width = Number(call.arguments.width);
-      const height = Number(call.arguments.height);
-
-      if (Number.isFinite(percent) && percent > 0) return resizeByPercent(percent);
-      if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
-        return resizeDocument(width, height);
-      }
-      // One side given: keep the proportions rather than guessing the other.
-      const side = Number.isFinite(width) && width > 0 ? width : height;
-      if (Number.isFinite(side) && side > 0) return resizeLongestSide(side);
-
-      return { messageKey: 'resize.unchanged', handled: false };
-    }
-
-    case 'reset_adjustments': {
-      const state = useDocumentStore.getState();
-      const layerId = state.sessions[state.activeId]?.document.activeLayerId;
-      if (!layerId) return { messageKey: 'error.noImageOpen', handled: false };
-      state.resetAdjustments(layerId);
-      return { messageKey: 'router.reset', handled: true };
-    }
-
-    case 'remove_object': {
-      // The id refers to the scene model; the object's box drives the
-      // segmenter → inpainter chain on the backend. A small model sometimes
-      // invents an id when nothing matches — this lookup is the guarantee the
-      // prompt cannot give, and the honest message is the right answer then.
-      const id = Number(call.arguments.id);
-      const scene = useSceneStore.getState().activeScene();
-      const target = scene?.objects.find((o) => o.id === id);
-      if (!target) return { messageKey: 'command.needsGenerative', handled: false };
-
-      await removeObjectByBbox(target.bbox);
-      return { messageKey: 'router.removed', params: { id }, handled: true };
-    }
-
-    case 'remove_selection':
-      await removeSelectedRegion();
-      return { messageKey: 'router.removedSelection', handled: true };
-
-    case 'report_unsupported':
-      // The router understood, and what it understood is not possible yet.
-      // Saying so beats pretending: the user learns the limit, not a bug.
-      return { messageKey: 'command.needsGenerative', handled: false };
-
-    case 'adjust': {
-      const property = String(call.arguments.property ?? '') as keyof Adjustments;
-      const amount = Number(call.arguments.amount ?? 0);
-
-      if (!ADJUSTMENT_KEYS.includes(property)) {
-        return { messageKey: 'command.notUnderstood', handled: false };
-      }
-      // The model answers 0 when it has nothing to change; saying so is more
-      // honest than silently doing nothing.
-      if (!Number.isFinite(amount) || amount === 0) {
-        return { messageKey: 'router.noChange', handled: false };
-      }
-      return applyAdjustment(property, amount);
-    }
-
-    default:
-      return { messageKey: 'command.notUnderstood', handled: false };
+  // The router understood, and what it understood is not possible yet.
+  // Saying so beats pretending: the user learns the limit, not a bug.
+  if (call.name === 'report_unsupported') {
+    return { messageKey: 'command.needsGenerative', handled: false };
   }
+
+  const command = findCommand(call.name);
+  if (!command) return { messageKey: 'command.notUnderstood', handled: false };
+  const args = coerceArgs(command, call.arguments ?? {});
+  if (validate(command, args)) return { messageKey: 'command.notUnderstood', handled: false };
+
+  const outcome = await command.run(args);
+  // A small model sometimes invents an object id when nothing matches; the
+  // honest answer then is that the thing was not found in the photo.
+  if (outcome.messageKey === 'commands.noObject' && call.name === 'remove_object') {
+    return { messageKey: 'command.needsGenerative', handled: false };
+  }
+  if (outcome.messageKey === 'commands.noObject') {
+    return { messageKey: 'command.notUnderstood', handled: false };
+  }
+  return outcome;
 }
 
 // ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ import { useActivityStore } from '../store/activityStore';
 import { scaleImage } from '../engine/compositing';
 import type { LayerNode } from '../types/document';
 import { t } from '../i18n';
+import { report } from './notify';
 
 /** Smallest and largest side the interface will accept, in pixels. */
 export const MIN_SIDE = 16;
@@ -89,7 +90,7 @@ export async function resizeDocument(width: number, height: number): Promise<Res
     };
   } catch (err) {
     activity.end(job, 'failed', err);
-    alert(t('resize.failed'));
+    report(t('resize.failed'));
     return { messageKey: 'resize.failed', handled: false };
   }
 }

@@ -24,6 +24,7 @@ import {
 } from '../types/document';
 import { t } from '../i18n';
 import { describeError } from '../i18n/backendError';
+import { report } from '../ops/notify';
 
 export const RECIPE_IDS = [
   'highlight-subject',
@@ -122,7 +123,7 @@ export async function runRecipe(
   const layer = layerId ? doc?.layers[layerId] : null;
 
   if (!doc || !layerId || !layer) {
-    alert(t('error.noImageOpen'));
+    report(t('error.noImageOpen'));
     return false;
   }
 
@@ -155,7 +156,7 @@ export async function runRecipe(
 
       if (!maskDataUrl && recipe.needsSubject) {
         activity.end(job, 'failed');
-        alert(t('recipe.needsSubject'));
+        report(t('recipe.needsSubject'));
         return false;
       }
     }
@@ -196,7 +197,7 @@ export async function runRecipe(
     return true;
   } catch (err) {
     activity.end(job, 'failed', err);
-    alert(describeError(err));
+    report(describeError(err));
     return false;
   } finally {
     setTimeout(() => state.setAIBusy(false), 200);

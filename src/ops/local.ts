@@ -12,6 +12,7 @@ import { buildSelectionMask } from './mask';
 import type { Adjustments } from '../types/document';
 import { t } from '../i18n';
 import { describeError } from '../i18n/backendError';
+import { report } from './notify';
 
 /**
  * Bringing a subject forward.
@@ -40,11 +41,11 @@ async function applyToSelection(
   const layerId = doc?.activeLayerId ?? null;
 
   if (!doc || !layerId) {
-    alert(t('error.noImageOpen'));
+    report(t('error.noImageOpen'));
     return false;
   }
   if (!session?.selection) {
-    alert(t('error.noSelection'));
+    report(t('error.noSelection'));
     return false;
   }
 
@@ -72,7 +73,7 @@ async function applyToSelection(
     return true;
   } catch (err) {
     activity.end(job, 'failed', err);
-    alert(describeError(err));
+    report(describeError(err));
     return false;
   } finally {
     setTimeout(() => state.setAIBusy(false), 200);

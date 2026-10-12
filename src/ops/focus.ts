@@ -16,6 +16,7 @@ import { buildSelectionMask, maskCanvas } from './mask';
 import { NEUTRAL_FOCUS, type FocusEffect } from '../types/document';
 import { t } from '../i18n';
 import { describeError } from '../i18n/backendError';
+import { report } from './notify';
 
 /**
  * Turns on depth-of-field driven by a real depth map.
@@ -36,7 +37,7 @@ export async function focusOnDepth(): Promise<void> {
   const layer = layerId ? doc?.layers[layerId] : null;
 
   if (!doc || !layer?.imageDataUrl || !layerId) {
-    alert(t('error.noImageOpen'));
+    report(t('error.noImageOpen'));
     return;
   }
 
@@ -49,7 +50,7 @@ export async function focusOnDepth(): Promise<void> {
     const mapDataUrl = await useDepthStore.getState().analyzeActive();
     if (!mapDataUrl) {
       activity.end(job, 'failed');
-      alert(t('error.noDepthModel'));
+      report(t('error.noDepthModel'));
       return;
     }
 
@@ -90,7 +91,7 @@ export async function focusOnDepth(): Promise<void> {
     activity.end(job, 'done');
   } catch (err) {
     activity.end(job, 'failed', err);
-    alert(describeError(err));
+    report(describeError(err));
   } finally {
     setTimeout(() => state.setAIBusy(false), 200);
   }
@@ -137,11 +138,11 @@ export async function focusOnSelection(options: { invert?: boolean } = {}): Prom
   const layer = layerId ? doc?.layers[layerId] : null;
 
   if (!doc || !layer?.imageDataUrl || !layerId) {
-    alert(t('error.noImageOpen'));
+    report(t('error.noImageOpen'));
     return;
   }
   if (!selection) {
-    alert(t('error.noSelection'));
+    report(t('error.noSelection'));
     return;
   }
 
@@ -171,7 +172,7 @@ export async function focusOnSelection(options: { invert?: boolean } = {}): Prom
     activity.end(job, 'done');
   } catch (err) {
     activity.end(job, 'failed', err);
-    alert(describeError(err));
+    report(describeError(err));
   } finally {
     setTimeout(() => state.setAIBusy(false), 200);
   }

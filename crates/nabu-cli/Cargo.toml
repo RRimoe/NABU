@@ -1,0 +1,30 @@
+[package]
+name = "nabu-cli"
+version = "0.1.0"
+description = "Nabu from the command line and from AI agents: the local command bridge, the `nabu` CLI and its MCP server."
+authors = ["Nabu contributors"]
+license = "MIT"
+edition = "2021"
+
+[lib]
+name = "nabu_cli"
+
+[[bin]]
+name = "nabu"
+path = "src/main.rs"
+
+# No HTTP or async stack: the bridge speaks a few lines of HTTP/1.1 on the
+# loopback interface, and pulling a web framework into the editor for that
+# would cost more build time than the whole feature.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+nabu-stitch = { path = "../nabu-stitch" }
+
+[profile.dev.package.nabu-stitch]
+opt-level = 3
+
+[profile.test.package.nabu-stitch]
+opt-level = 3

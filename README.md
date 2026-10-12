@@ -122,6 +122,40 @@ reference; anything a translation omits falls back to it.
 
 ---
 
+## Scripts and AI agents
+
+Everything Nabu does is a command in one registry (`src/commands/`), with a
+description and a parameter schema. The same commands are reachable from
+outside the window, so a script or an agent edits with exactly the pipeline
+and models the interface uses.
+
+```bash
+nabu commands                                   # what the editor can do
+nabu call open_image path=beach.jpg
+nabu call adjust property=exposure amount=15
+nabu call export_image path=beach-edit.jpg
+nabu batch --look portra --out edited/ shoot/*.jpg
+nabu panorama pano.jpg left.jpg middle.jpg right.jpg   # no editor needed
+```
+
+`nabu` is the installed application itself: run with a subcommand, it acts as
+the command line, starting the editor in the background when it is not open.
+
+**MCP.** `nabu mcp` is a Model Context Protocol server over stdio, so Claude
+and other agents can open a photo, look at it (`get_preview` returns the
+picture), find what is in it (`analyze_scene`), remove an object, grade it and
+export it. In Claude Desktop, add to `claude_desktop_config.json`:
+
+```json
+{ "mcpServers": { "nabu": { "command": "/path/to/nabu", "args": ["mcp"] } } }
+```
+
+The editor listens only on the loopback interface, and only to callers holding
+the token it writes, readable by your user alone, in its data folder. Start it
+with `NABU_BRIDGE=0` to turn the bridge off.
+
+---
+
 ## Running it
 
 ```bash
@@ -132,7 +166,10 @@ npm run dev           # interface only, in a browser (no models)
 ```
 
 Building: `npm run build:llm`. Tests: `cargo test --all-targets` in
-`src-tauri/`, and `npm run check:locales` for translation coverage.
+`src-tauri/`, `cargo test` in `crates/nabu-cli`, `cargo test --release` in
+`crates/nabu-stitch`, `npm run check:locales` for translation coverage and
+`npm run check:commands` to keep the language model's tools and the command
+registry in step.
 
 ---
 
@@ -165,6 +202,11 @@ Building: `npm run build:llm`. Tests: `cargo test --all-targets` in
       length and distortion), alignment refined on the full-resolution
       pixels, flat, cylindrical or spherical projection, exposure matching,
       graph-cut seams and multi-band blending (`crates/nabu-stitch`)
+- [x] One command registry for everything: the command bar, the local
+      language model, the `nabu` command line and AI agents over MCP run the
+      same commands on the same pipeline
+- [x] Batch edit: one photo's edit, or a look, applied to a whole shoot and
+      exported to a folder, from the menu or from the command line
 
 **Next**
 
@@ -184,7 +226,7 @@ Building: `npm run build:llm`. Tests: `cargo test --all-targets` in
 - [ ] Text: read it (RapidOCR, Apache-2.0), translate it, remove it
 - [ ] Faces as a capability (YuNet, MIT) — find them, work on them by name
 - [ ] Semantic segmentation for sky and ground (PP-LiteSeg, Apache-2.0)
-- [ ] RAW import, batch processing
+- [ ] RAW import
 
 ---
 

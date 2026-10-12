@@ -16,6 +16,7 @@ import { cutOut, trimToContent, PHOTO_MATTE } from '../engine/matte';
 import { buildSelectionMask } from './mask';
 import { t } from '../i18n';
 import { describeError } from '../i18n/backendError';
+import { report } from './notify';
 
 /**
  * Copies the current selection out of the active layer, or the whole layer
@@ -32,7 +33,7 @@ export async function copySelection(): Promise<boolean> {
   const layer = doc?.activeLayerId ? doc.layers[doc.activeLayerId] : null;
 
   if (!doc || !layer?.imageDataUrl) {
-    alert(t('error.noImageOpen'));
+    report(t('error.noImageOpen'));
     return false;
   }
 
@@ -77,7 +78,7 @@ export async function copySelection(): Promise<boolean> {
 
     if (!trimmed) {
       activity.end(job, 'failed');
-      alert(t('error.emptyCutout'));
+      report(t('error.emptyCutout'));
       return false;
     }
 
@@ -92,7 +93,7 @@ export async function copySelection(): Promise<boolean> {
     return true;
   } catch (err) {
     activity.end(job, 'failed', err);
-    alert(describeError(err));
+    report(describeError(err));
     return false;
   } finally {
     setTimeout(() => state.setAIBusy(false), 200);
@@ -111,7 +112,7 @@ export async function pasteClipboard(): Promise<boolean> {
   const doc = state.sessions[state.activeId]?.document;
 
   if (!doc) {
-    alert(t('error.noImageOpen'));
+    report(t('error.noImageOpen'));
     return false;
   }
   if (!item) return false;

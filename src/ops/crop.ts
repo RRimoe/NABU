@@ -12,6 +12,7 @@ import { useActivityStore } from '../store/activityStore';
 import { loadImage } from '../engine/RenderEngine';
 import type { LayerNode } from '../types/document';
 import { t } from '../i18n';
+import { report } from './notify';
 
 /** A frame in document coordinates. */
 export interface CropRect {
@@ -70,7 +71,7 @@ export async function cropDocument(rect: CropRect): Promise<boolean> {
   const state = useDocumentStore.getState();
   const doc = state.sessions[state.activeId]?.document;
   if (!doc) {
-    alert(t('error.noImageOpen'));
+    report(t('error.noImageOpen'));
     return false;
   }
 
@@ -154,7 +155,7 @@ export async function cropDocument(rect: CropRect): Promise<boolean> {
     return true;
   } catch (err) {
     activity.end(job, 'failed', err);
-    alert(t('crop.failed'));
+    report(t('crop.failed'));
     return false;
   }
 }

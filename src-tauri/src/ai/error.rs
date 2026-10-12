@@ -160,6 +160,22 @@ pub fn cancelled() -> NabuError {
     NabuError::new("backend.cancelled")
 }
 
+pub fn file_unreadable(path: &str, cause: impl ToString) -> NabuError {
+    NabuError::new("backend.fileUnreadable")
+        .with("path", path)
+        .with("reason", cause.to_string())
+}
+
+pub fn file_unwritable(path: &str, cause: impl ToString) -> NabuError {
+    NabuError::new("backend.fileUnwritable")
+        .with("path", path)
+        .with("reason", cause.to_string())
+}
+
+pub fn relative_path(path: &str) -> NabuError {
+    NabuError::new("backend.relativePath").with("path", path)
+}
+
 pub fn unknown(cause: impl ToString) -> NabuError {
     NabuError::new("backend.unknown").detail(cause)
 }

@@ -7,6 +7,7 @@ import { useActivityStore } from '../store/activityStore';
 import { harmonizeLayer, type HarmonizeSettings } from '../engine/harmonize';
 import { t } from '../i18n';
 import { describeError } from '../i18n/backendError';
+import { report } from './notify';
 
 /** True when this layer has something underneath it to be matched against. */
 export function canBlend(): boolean {
@@ -37,11 +38,11 @@ export async function blendActiveLayer(settings: HarmonizeSettings): Promise<boo
   const layer = layerId ? doc?.layers[layerId] : null;
 
   if (!doc || !layerId || !layer) {
-    alert(t('error.noImageOpen'));
+    report(t('error.noImageOpen'));
     return false;
   }
   if (!canBlend()) {
-    alert(t('blend.needsBackdrop'));
+    report(t('blend.needsBackdrop'));
     return false;
   }
 
@@ -55,7 +56,7 @@ export async function blendActiveLayer(settings: HarmonizeSettings): Promise<boo
 
     if (!result) {
       activity.end(job, 'failed');
-      alert(t('blend.failed'));
+      report(t('blend.failed'));
       return false;
     }
 
@@ -80,7 +81,7 @@ export async function blendActiveLayer(settings: HarmonizeSettings): Promise<boo
     return true;
   } catch (err) {
     activity.end(job, 'failed', err);
-    alert(describeError(err));
+    report(describeError(err));
     return false;
   } finally {
     setTimeout(() => state.setAIBusy(false), 200);

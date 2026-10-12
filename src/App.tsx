@@ -29,6 +29,7 @@ import { copySelection, pasteClipboard } from './ops/clipboard';
 import { loadImage } from './engine/RenderEngine';
 import { ExportPopover } from './components/ExportPopover';
 import { PanoramaDialog } from './components/PanoramaDialog';
+import { BatchDialog } from './components/BatchDialog';
 import { ColourPanel } from './components/ColourPanel';
 import { MasksPanel } from './components/MasksPanel';
 import { downloadBlob, safeFileName } from './ops/export';
@@ -40,6 +41,7 @@ import {
   ProjectError,
   PROJECT_EXTENSION,
 } from './ops/project';
+import { connectBridge } from './commands/bridge';
 import './App.css';
 
 function App() {
@@ -76,6 +78,7 @@ function App() {
   const [resizeOpen, setResizeOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [panoramaOpen, setPanoramaOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
   const [panelsOpen, setPanelsOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -105,7 +108,12 @@ function App() {
       updateAIProgress(event.payload.percent, event.payload.stage);
     }).then(attach);
 
-    void refresh();
+    // Scripts and agents reach the registry once the installed models are
+    // known: a call arriving earlier would be told a model is missing.
+    void refresh()
+      .catch(() => undefined)
+      .then(() => connectBridge())
+      .then(attach);
     void loadAccelerator();
     // Translations dropped into the user folder, loaded alongside the built-in ones.
     void loadExternalLanguages();
@@ -305,6 +313,7 @@ function App() {
         onOpen={() => fileInputRef.current?.click()}
         onExport={() => setExportOpen(true)}
         onPanorama={() => setPanoramaOpen(true)}
+        onBatch={() => setBatchOpen(true)}
         onSaveProject={saveProject}
         onSettings={() => setSettingsOpen(true)}
         onResize={() => setResizeOpen(true)}
@@ -415,6 +424,14 @@ function App() {
         <div className="nabu-modal-backdrop">
           <div className="resize-centred" onMouseDown={(e) => e.stopPropagation()}>
             <PanoramaDialog onClose={() => setPanoramaOpen(false)} />
+          </div>
+        </div>
+      )}
+
+      {batchOpen && (
+        <div className="nabu-modal-backdrop">
+          <div className="resize-centred" onMouseDown={(e) => e.stopPropagation()}>
+            <BatchDialog onClose={() => setBatchOpen(false)} />
           </div>
         </div>
       )}

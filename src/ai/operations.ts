@@ -20,6 +20,7 @@ import type { Intent } from './intents';
 import type { Suggestion } from './suggestions';
 import type { ModelTaskKind } from '../types/models';
 import type { Point2D, RefinePoint } from '../types/document';
+import { report } from '../ops/notify';
 
 function activeContext() {
   const state = useDocumentStore.getState();
@@ -158,7 +159,7 @@ export async function refineByClick(at: Point2D, invert: boolean): Promise<void>
     // A refinement that fails leaves the click behind rather than the mask in a
     // state nobody asked for: dropping it is the honest undo.
     useDocumentStore.getState().undoRefinePoint();
-    alert(describeError(error));
+    report(describeError(error));
   }
 }
 
@@ -168,13 +169,13 @@ export async function removeBackground(): Promise<void> {
   const activity = useActivityStore.getState();
 
   if (!doc || !layer?.imageDataUrl || !doc.activeLayerId) {
-    alert(t('error.noImageOpen'));
+    report(t('error.noImageOpen'));
     return;
   }
 
   const model = findModel('background-removal');
   if (!model) {
-    alert(t('error.noBackgroundModel'));
+    report(t('error.noBackgroundModel'));
     return;
   }
 
@@ -221,7 +222,7 @@ export async function removeBackground(): Promise<void> {
     activity.end(job, 'done');
   } catch (err) {
     activity.end(job, 'failed', err);
-    alert(describeError(err));
+    report(describeError(err));
   } finally {
     setTimeout(() => state.setAIBusy(false), 300);
   }
@@ -233,13 +234,13 @@ export async function upscale(): Promise<void> {
   const activity = useActivityStore.getState();
 
   if (!doc || !layer?.imageDataUrl) {
-    alert(t('error.noImageOpen'));
+    report(t('error.noImageOpen'));
     return;
   }
 
   const model = findModel('upscale');
   if (!model) {
-    alert(t('error.noUpscaleModel'));
+    report(t('error.noUpscaleModel'));
     return;
   }
 
@@ -270,7 +271,7 @@ export async function upscale(): Promise<void> {
     activity.end(job, 'done');
   } catch (err) {
     activity.end(job, 'failed', err);
-    alert(describeError(err));
+    report(describeError(err));
   } finally {
     setTimeout(() => state.setAIBusy(false), 300);
   }
@@ -289,11 +290,11 @@ export async function extractObject(): Promise<void> {
   const { doc, layer, selection } = activeContext();
 
   if (!doc || !layer?.imageDataUrl || !doc.activeLayerId) {
-    alert(t('error.noImageOpen'));
+    report(t('error.noImageOpen'));
     return;
   }
   if (!selection) {
-    alert(t('error.noSelection'));
+    report(t('error.noSelection'));
     return;
   }
 
@@ -331,13 +332,13 @@ export async function extractObjectByBbox(
   const activity = useActivityStore.getState();
 
   if (!doc || !layer?.imageDataUrl || !doc.activeLayerId) {
-    alert(t('error.noImageOpen'));
+    report(t('error.noImageOpen'));
     return;
   }
 
   const model = findModel('segmentation');
   if (!model) {
-    alert(t('error.noSegmentationModel'));
+    report(t('error.noSegmentationModel'));
     return;
   }
 
@@ -387,7 +388,7 @@ export async function extractObjectByBbox(
     activity.end(job, 'done');
   } catch (err) {
     activity.end(job, 'failed', err);
-    alert(describeError(err));
+    report(describeError(err));
   } finally {
     setTimeout(() => state.setAIBusy(false), 300);
   }
@@ -409,7 +410,7 @@ export async function removeObjectByBbox(
   const activity = useActivityStore.getState();
 
   if (!doc || !layer?.imageDataUrl || !doc.activeLayerId) {
-    alert(t('error.noImageOpen'));
+    report(t('error.noImageOpen'));
     return;
   }
 
@@ -448,7 +449,7 @@ export async function removeObjectByBbox(
     activity.end(job, 'done');
   } catch (err) {
     activity.end(job, 'failed', err);
-    alert(describeError(err));
+    report(describeError(err));
   } finally {
     setTimeout(() => state.setAIBusy(false), 300);
   }
@@ -465,11 +466,11 @@ export async function removeSelectedRegion(): Promise<void> {
   const { doc, layer, selection } = activeContext();
 
   if (!doc || !layer?.imageDataUrl || !doc.activeLayerId) {
-    alert(t('error.noImageOpen'));
+    report(t('error.noImageOpen'));
     return;
   }
   if (!selection) {
-    alert(t('error.noSelection'));
+    report(t('error.noSelection'));
     return;
   }
 
@@ -526,7 +527,7 @@ export async function runIntent(intent: Intent): Promise<void> {
 export async function runSuggestion(suggestion: Suggestion): Promise<void> {
   const { state, doc } = activeContext();
   if (!doc?.activeLayerId) {
-    alert(t('error.noImageOpen'));
+    report(t('error.noImageOpen'));
     return;
   }
 

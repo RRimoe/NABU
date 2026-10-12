@@ -22,6 +22,7 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run check:locales
+      - run: npm run check:commands
       - run: npx vite build
 
   engine:
@@ -39,6 +40,7 @@ jobs:
           workspaces: |
             src-tauri
             crates/nabu-stitch
+            crates/nabu-cli
       # Tauri embeds the built interface, so the folder it points at must exist.
       - run: mkdir -p dist
       # Tests that need downloaded models or the network are #[ignore]d and
@@ -48,3 +50,6 @@ jobs:
       # The stitcher's own tests: precision against rendered ground truth.
       - run: cargo test --release
         working-directory: crates/nabu-stitch
+      # The command line, the MCP server and the bridge, against a fake editor.
+      - run: cargo test
+        working-directory: crates/nabu-cli

@@ -2,6 +2,7 @@
 // Public so integration tests can drive the engine through the same modules
 // the application uses, instead of re-including source files by path.
 pub mod ai;
+pub mod bridge;
 pub mod panorama;
 
 use std::sync::Arc;
@@ -723,12 +724,37 @@ async fn process_ai_task(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    // Started by the command line to run a script: no window, just the engine.
+    let background = std::env::args().any(|a| a == nabu_cli::BACKGROUND_FLAG);
+
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .setup(|app| {
+        .plugin(tauri_plugin_dialog::init())
+        .setup(move |app| {
             app.manage(Arc::new(DownloadManager::default()));
             app.manage(Arc::new(SessionCache::default()));
             app.manage(Arc::new(panorama::PanoramaState::default()));
+
+            let editor = Arc::new(bridge::EditorBridge::new(app.handle().clone()));
+            app.manage(editor.clone());
+            // `NABU_BRIDGE=0` keeps the editor closed to scripts and agents.
+            let enabled = std::env::var("NABU_BRIDGE").map_or(true, |v| v != "0");
+            if let (true, Some(path)) = (enabled, nabu_cli::bridge::info_path()) {
+                match nabu_cli::bridge::serve(editor, &path) {
+                    Ok(info) => {
+                        app.manage(BridgeFile { path, info });
+                    }
+                    Err(err) => eprintln!("[nabu] command bridge unavailable: {err}"),
+                }
+            }
+
+            // The window is created hidden so a background run never flashes
+            // one on screen; a normal start shows it straight away.
+            if !background {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -751,8 +777,28 @@ pub fn run() {
             refine_selection,
             process_ai_task,
             panorama::stitch_panorama,
-            panorama::cancel_panorama
+            panorama::cancel_panorama,
+            bridge::bridge_ready,
+            bridge::command_result,
+            bridge::read_file,
+            bridge::write_file
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("error while starting the Nabu application");
+
+    app.run(|handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            // A bridge file left behind would send the next script to a port
+            // nobody is listening on.
+            if let Some(file) = handle.try_state::<BridgeFile>() {
+                nabu_cli::bridge::withdraw(&file.path, &file.info);
+            }
+        }
+    });
+}
+
+/// Where the bridge was published, so it can be withdrawn on exit.
+struct BridgeFile {
+    path: std::path::PathBuf,
+    info: nabu_cli::bridge::BridgeInfo,
 }
