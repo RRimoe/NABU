@@ -49,6 +49,7 @@ pub fn run(args: &[String]) -> io::Result<i32> {
                     Some("rectilinear") => Some(Projection::Rectilinear),
                     Some("cylindrical") => Some(Projection::Cylindrical),
                     Some("spherical") => Some(Projection::Spherical),
+                    Some("planar") => Some(Projection::Planar),
                     other => return Err(invalid(format!("unknown projection {other:?}"))),
                 }
             }

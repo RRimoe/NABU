@@ -148,7 +148,7 @@ BATCH
   --suffix <text>            Added to output names (default -nabu)
 
 PANORAMA
-  --projection auto|rectilinear|cylindrical|spherical
+  --projection auto|rectilinear|cylindrical|spherical|planar
   --no-crop                  Keep the ragged edges
   --max-mp <n>               Largest output in megapixels (default 60)
 

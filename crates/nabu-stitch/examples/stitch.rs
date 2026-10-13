@@ -19,6 +19,7 @@ fn main() {
                 options.projection = Some(match args.remove(0).as_str() {
                     "rectilinear" => Projection::Rectilinear,
                     "cylindrical" => Projection::Cylindrical,
+                    "planar" => Projection::Planar,
                     _ => Projection::Spherical,
                 })
             }

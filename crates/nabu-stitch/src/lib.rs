@@ -1,6 +1,8 @@
 //! Panorama stitching.
 //!
-//! Turns a set of overlapping photos taken from one spot into one picture:
+//! Turns a set of overlapping photos taken from one spot into one picture.
+//! Photos taken walking along a flat subject (a train, a wall) are recognised
+//! and laid on the subject's plane instead ([`planar`]):
 //!
 //! 1. **Features** — SIFT on a working copy of each photo ([`sift`]).
 //! 2. **Matching** — mutual nearest neighbours with Lowe's ratio test, every
@@ -24,6 +26,7 @@ pub mod exposure;
 pub mod homography;
 pub mod imgops;
 pub mod matching;
+pub mod planar;
 pub mod refine;
 pub mod seam;
 pub mod sift;
@@ -36,7 +39,7 @@ use imgops::{downscale, to_gray, Transfer};
 use nalgebra::Matrix3;
 use rayon::prelude::*;
 pub use warp::Projection;
-use warp::{footprint, rect_of, Rect, Surface, Warped};
+use warp::{footprint, planar_rect, rect_of, warp_planar, Rect, Surface, Warped};
 
 #[derive(Clone, Debug)]
 pub struct Options {
@@ -128,6 +131,13 @@ pub struct Alignment {
     pub rotations: Vec<Matrix3<f64>>,
     pub members: Vec<usize>,
     pub rms: f64,
+    /// Per photo, its place on the subject's plane (centred full-resolution
+    /// pixels to the reference photo's), for photos taken walking along a
+    /// flat subject. None when no plane fits.
+    pub planar: Option<Vec<Matrix3<f64>>>,
+    /// The planar placement explains the matches clearly better than
+    /// turning on the spot: the photos were taken walking.
+    pub walking: bool,
 }
 
 /// Reports progress; returning false cancels.
@@ -262,6 +272,29 @@ pub fn align_images(images: &[RgbaImage], options: &Options, progress: Progress)
     }
     let (best, members, used, root) = solution.expect("loop always sets a solution");
 
+    // The other explanation: the camera moved along a flat subject. Decided
+    // on the median residual of each model, so that the ground (which neither
+    // model places right when the camera moves) does not decide.
+    let plane = planar::fit(n, &members, &used, root, huber);
+    let walking = plane.as_ref().is_some_and(|plane| {
+        let flat = planar::median_residual(plane, &used);
+        let turning = rotation_median_residual(&best.lens, &best.rotations, &used);
+        // Turning on the spot explains a walk only with an absurdly long
+        // lens: sliding past a wall looks like a tiny turn of a telephoto.
+        // Phones do not shoot through a lens that narrow, so a solution that
+        // needs one, where the plane fits as well, is a walk.
+        let widest = features.iter().map(|f| f.width.max(f.height)).max().unwrap_or(1) as f64;
+        let view = 2.0 * (widest / 2.0 / best.lens.focal).atan().to_degrees();
+        debug(&format!("median residual: planar {flat:.3}px, rotation {turning:.3}px; view {view:.1}°"));
+        flat < turning * WALKING_RATIO || (view < NARROWEST_VIEW && flat <= turning)
+    });
+    let planar = plane.map(|plane| {
+        // From centred working pixels to centred full-resolution ones.
+        let s = Matrix3::new(work_scale, 0.0, 0.0, 0.0, work_scale, 0.0, 0.0, 0.0, 1.0);
+        let s_inv = Matrix3::new(1.0 / work_scale, 0.0, 0.0, 0.0, 1.0 / work_scale, 0.0, 0.0, 0.0, 1.0);
+        plane.transforms.iter().map(|t| s_inv * t * s).collect::<Vec<_>>()
+    });
+
     // Back to full-resolution pixels.
     let mut lens = best.lens.scaled(1.0 / work_scale);
     let mut rotations = best.rotations;
@@ -284,7 +317,34 @@ pub fn align_images(images: &[RgbaImage], options: &Options, progress: Progress)
     }
 
     align::straighten(&mut rotations, &members);
-    Ok(Alignment { lens, rotations, members, rms })
+    Ok(Alignment { lens, rotations, members, rms, planar, walking })
+}
+
+/// How much better (as a ratio of median residuals) the planar placement
+/// must fit before the photos are taken to have been shot walking.
+const WALKING_RATIO: f64 = 0.6;
+
+/// Narrowest view (degrees, across the long side of a photo) that a turn on
+/// the spot is believed for when the plane fits just as well.
+const NARROWEST_VIEW: f64 = 25.0;
+
+/// Median residual of the rotation model over the matches, working pixels.
+fn rotation_median_residual(lens: &Lens, rotations: &[Matrix3<f64>], pairs: &[Pair]) -> f64 {
+    let mut all = Vec::new();
+    for p in pairs {
+        // As the bundle adjustment measures it: b seen from camera i lands on a.
+        let rij = rotations[p.i].transpose() * rotations[p.j];
+        for (a, b) in p.a.iter().zip(&p.b) {
+            if let Some(q) = lens.project(&(rij * lens.ray(*b))) {
+                all.push(((q[0] - a[0]).powi(2) + (q[1] - a[1]).powi(2)).sqrt());
+            }
+        }
+    }
+    if all.is_empty() {
+        return f64::INFINITY;
+    }
+    all.sort_by(f64::total_cmp);
+    all[all.len() / 2]
 }
 
 /// Surface rectangle of one photo, if it projects at all.
@@ -340,7 +400,21 @@ pub fn compose(
     let members = &alignment.members;
     let lens = alignment.lens;
     let (auto, field_of_view) = choose_projection(alignment, images);
-    let projection = options.projection.unwrap_or(auto);
+    let auto = if alignment.walking && alignment.planar.is_some() { Projection::Planar } else { auto };
+    let mut projection = options.projection.unwrap_or(auto);
+    if projection == Projection::Planar && alignment.planar.is_none() {
+        projection = Projection::Rectilinear;
+    }
+    // Where each photo goes, at a given output scale: on the plane, or on the
+    // projection surface.
+    let planes = alignment.planar.as_ref().filter(|_| projection == Projection::Planar);
+    let to_plane = |m: usize, scale: f64| -> Matrix3<f64> {
+        let t = planes.map(|p| p[m]).unwrap_or_else(Matrix3::identity);
+        let up = Matrix3::new(scale, 0.0, 0.0, 0.0, scale, 0.0, 0.0, 0.0, 1.0);
+        let down = Matrix3::new(1.0 / scale, 0.0, 0.0, 0.0, 1.0 / scale, 0.0, 0.0, 0.0, 1.0);
+        // Photo pixels at `scale`, centred, to plane pixels at `scale`.
+        up * t * down
+    };
 
     // Output scale: one output pixel per input pixel at the centre of the
     // projection, unless that exceeds the size limit.
@@ -348,8 +422,12 @@ pub fn compose(
     let mut rects = Vec::new();
     for &m in members {
         let (w, h) = (images[m].width() as usize, images[m].height() as usize);
-        let r = place(&full, &lens, &alignment.rotations[m], w, h)
-            .ok_or_else(|| StitchError::Layout(format!("photo {m} does not project")))?;
+        let r = if planes.is_some() {
+            planar_rect(&to_plane(m, 1.0), w, h)
+        } else {
+            place(&full, &lens, &alignment.rotations[m], w, h)
+                .ok_or_else(|| StitchError::Layout(format!("photo {m} does not project")))?
+        };
         rects.push(r);
     }
     let canvas = rects.iter().skip(1).fold(rects[0], |a, b| a.union(b));
@@ -371,6 +449,10 @@ pub fn compose(
         .iter()
         .map(|&m| {
             let img = downscale(&images[m], seam_scale);
+            if planes.is_some() {
+                let t = to_plane(m, seam_scale);
+                return warp_planar(&img, &t, planar_rect(&t, img.width() as usize, img.height() as usize));
+            }
             let rect = place(&seam_surface, &seam_lens, &alignment.rotations[m], img.width() as usize, img.height() as usize)
                 .unwrap_or(Rect { x: 0, y: 0, width: 1, height: 1 });
             warp::warp(&img, &seam_lens, &alignment.rotations[m], &seam_surface, rect)
@@ -413,6 +495,10 @@ pub fn compose(
             ((images[m].width() as f64 * compose_scale).round() as usize).max(1),
             ((images[m].height() as f64 * compose_scale).round() as usize).max(1),
         );
+        if planes.is_some() {
+            out_rects.push(planar_rect(&to_plane(m, compose_scale), w, h));
+            continue;
+        }
         out_rects.push(place(&out_surface, &out_lens, &alignment.rotations[m], w, h).unwrap_or(Rect {
             x: 0,
             y: 0,
@@ -430,7 +516,11 @@ pub fn compose(
         step(progress, Stage::Blending, k as f32 / members.len() as f32)?;
         let t0 = std::time::Instant::now();
         let img = downscale(&images[m], compose_scale);
-        let mut warped = warp::warp(&img, &out_lens, &alignment.rotations[m], &out_surface, out_rects[k]);
+        let mut warped = if planes.is_some() {
+            warp_planar(&img, &to_plane(m, compose_scale), out_rects[k])
+        } else {
+            warp::warp(&img, &out_lens, &alignment.rotations[m], &out_surface, out_rects[k])
+        };
         let t1 = t0.elapsed().as_secs_f64();
         apply_gain(&mut warped.rgb, warped.rect.width, warped.rect.height, gains[k], Some(&fields[k]));
         let t2 = t0.elapsed().as_secs_f64();

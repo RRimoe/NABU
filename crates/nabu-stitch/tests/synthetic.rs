@@ -149,6 +149,7 @@ fn run(name: &str, shots: &[Shot], truth: Lens, w: u32, h: u32, options: &Option
         alignment.lens.focal, truth.focal, alignment.lens.k1, truth.k1, alignment.rms
     );
     assert!(rms < limit, "{name}: alignment error {rms:.3}px over {limit}px");
+    assert!(!alignment.walking, "{name}: photos turned on the spot taken for a walk");
 
     if std::env::var_os("NABU_STITCH_SAVE").is_some() {
         let pano = compose(&images, &alignment, options, &mut |_, _| true).expect("compose");

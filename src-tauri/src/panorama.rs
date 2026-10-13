@@ -28,7 +28,7 @@ pub struct PanoramaState {
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 struct PanoramaOptions {
-    /// "auto", "rectilinear", "cylindrical" or "spherical".
+    /// "auto", "rectilinear", "cylindrical", "spherical" or "planar".
     projection: Option<String>,
     crop: Option<bool>,
     max_megapixels: Option<f64>,
@@ -157,6 +157,7 @@ pub async fn stitch_panorama(
                 Some("rectilinear") => Some(Projection::Rectilinear),
                 Some("cylindrical") => Some(Projection::Cylindrical),
                 Some("spherical") => Some(Projection::Spherical),
+                Some("planar") => Some(Projection::Planar),
                 _ => None,
             },
             crop: options.crop.unwrap_or(defaults.crop),
@@ -187,6 +188,7 @@ pub async fn stitch_panorama(
                 Projection::Rectilinear => "rectilinear",
                 Projection::Cylindrical => "cylindrical",
                 Projection::Spherical => "spherical",
+                Projection::Planar => "planar",
             },
             rms: result.rms,
             horizontal_fov: result.field_of_view.0,

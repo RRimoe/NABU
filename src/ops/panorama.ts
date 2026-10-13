@@ -8,7 +8,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
-export type PanoramaProjection = 'auto' | 'rectilinear' | 'cylindrical' | 'spherical';
+export type PanoramaProjection = 'auto' | 'rectilinear' | 'cylindrical' | 'spherical' | 'planar';
 
 export interface PanoramaOptions {
   projection: PanoramaProjection;

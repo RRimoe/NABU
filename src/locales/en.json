@@ -576,6 +576,8 @@
   "panorama.projection.cylindrical.hint": "The classic wide panorama, up to 360° across",
   "panorama.projection.spherical": "Sphere",
   "panorama.projection.spherical.hint": "For several rows of photos or very tall views",
+  "panorama.projection.planar": "Walking",
+  "panorama.projection.planar.hint": "For photos taken walking along a flat subject: a train, a wall, a mural. Auto recognises it by itself",
   "panorama.size": "Size",
   "panorama.size.standard": "Up to {megapixels} MP",
   "panorama.size.full": "Full ({megapixels} MP max)",

@@ -666,13 +666,13 @@ register(
   {
     name: 'stitch_panorama',
     description:
-      'Stitch overlapping photos taken from one spot into a panorama and open it as a new document. Photos that do not overlap the rest are left out and listed.',
+      'Stitch overlapping photos into a panorama and open it as a new document: taken turning from one spot, or walking along a flat subject such as a train or a wall (planar). Give the paths in shooting order. Photos that do not overlap the rest are left out and listed.',
     params: {
       paths: { type: 'array', items: { type: 'string' }, description: 'Absolute paths of two or more photos.', required: true },
       projection: {
         type: 'string',
-        description: 'Projection; auto picks flat, cylindrical or spherical from the field of view.',
-        enum: ['auto', 'rectilinear', 'cylindrical', 'spherical'],
+        description: 'Projection; auto picks planar for photos taken walking, otherwise flat, cylindrical or spherical from the field of view.',
+        enum: ['auto', 'rectilinear', 'cylindrical', 'spherical', 'planar'],
       },
       crop: { type: 'boolean', description: 'Crop to the largest clean rectangle (default true).' },
       max_megapixels: { type: 'number', description: 'Upper bound on the output size (default 60).', minimum: 1, maximum: 400 },
@@ -689,6 +689,7 @@ register(
           projection: (args.projection as PanoramaProjection | undefined) ?? 'auto',
           crop: args.crop !== false,
           maxMegapixels: Number(args.max_megapixels ?? 60),
+          inOrder: true,
         },
         () => undefined
       );

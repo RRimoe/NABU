@@ -576,6 +576,8 @@
   "panorama.projection.cylindrical.hint": "Il classico panorama largo, fino a 360°",
   "panorama.projection.spherical": "Sfera",
   "panorama.projection.spherical.hint": "Per più file di foto o inquadrature molto alte",
+  "panorama.projection.planar": "Camminando",
+  "panorama.projection.planar.hint": "Per foto scattate camminando lungo un soggetto piatto: un treno, un muro, un murale. Auto lo riconosce da sola",
   "panorama.size": "Dimensione",
   "panorama.size.standard": "Fino a {megapixels} MP",
   "panorama.size.full": "Piena (max {megapixels} MP)",

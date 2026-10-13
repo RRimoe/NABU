@@ -22,7 +22,7 @@ interface Props {
 }
 
 const STORAGE_KEY = 'nabu.panorama';
-const PROJECTIONS: PanoramaProjection[] = ['auto', 'rectilinear', 'cylindrical', 'spherical'];
+const PROJECTIONS: PanoramaProjection[] = ['auto', 'rectilinear', 'cylindrical', 'spherical', 'planar'];
 /** "Standard" keeps the result easy to edit; "full" keeps every pixel. */
 const SIZES = [60, 120];
 

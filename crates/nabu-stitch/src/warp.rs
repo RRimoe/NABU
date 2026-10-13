@@ -19,6 +19,10 @@ pub enum Projection {
     Cylindrical,
     /// Wraps both ways: for multi-row panoramas and very tall fields of view.
     Spherical,
+    /// Photos taken walking along a flat subject (a train, a wall, a mural)
+    /// rather than turning on the spot: each photo is placed on the
+    /// subject's plane. On a surface it draws like `Rectilinear`.
+    Planar,
 }
 
 /// The panorama surface: a projection and its scale in pixels per radian.
@@ -34,7 +38,7 @@ impl Surface {
     pub fn forward(&self, w: &Vector3<f64>) -> Option<[f64; 2]> {
         let s = self.scale;
         match self.projection {
-            Projection::Rectilinear => {
+            Projection::Rectilinear | Projection::Planar => {
                 if w.z <= 1e-6 {
                     return None;
                 }
@@ -60,7 +64,7 @@ impl Surface {
     /// Range of u that wraps around, if the projection wraps.
     pub fn period(&self) -> Option<f64> {
         match self.projection {
-            Projection::Rectilinear => None,
+            Projection::Rectilinear | Projection::Planar => None,
             _ => Some(2.0 * PI * self.scale),
         }
     }
@@ -82,7 +86,7 @@ impl Inverse {
             .map(|x| {
                 let u = (x0 + x as f64) / s;
                 match surface.projection {
-                    Projection::Rectilinear => (u, 1.0),
+                    Projection::Rectilinear | Projection::Planar => (u, 1.0),
                     _ => (u.sin(), u.cos()),
                 }
             })
@@ -104,7 +108,7 @@ impl Inverse {
         let (a, b) = self.cols[x];
         let (c, d) = self.rows[y];
         match self.projection {
-            Projection::Rectilinear => Vector3::new(a, c, 1.0),
+            Projection::Rectilinear | Projection::Planar => Vector3::new(a, c, 1.0),
             Projection::Cylindrical => Vector3::new(a, c, b),
             Projection::Spherical => Vector3::new(a * d, c, b * d),
         }
@@ -297,4 +301,45 @@ pub fn rect_of(bounds: (f64, f64, f64, f64)) -> Rect {
     let r = u1.ceil() as i64 + 2;
     let b = v1.ceil() as i64 + 2;
     Rect { x, y, width: (r - x).max(1) as usize, height: (b - y).max(1) as usize }
+}
+
+/// Corners of a photo of `width` × `height` placed on the plane by
+/// `transform` (centred photo pixels to plane pixels), as a rectangle.
+pub fn planar_rect(transform: &Matrix3<f64>, width: usize, height: usize) -> Rect {
+    let (hw, hh) = ((width as f64 - 1.0) / 2.0, (height as f64 - 1.0) / 2.0);
+    let (mut u0, mut u1, mut v0, mut v1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+    for (x, y) in [(-hw, -hh), (hw, -hh), (-hw, hh), (hw, hh)] {
+        let p = transform * Vector3::new(x, y, 1.0);
+        let (u, v) = (p.x / p.z, p.y / p.z);
+        u0 = u0.min(u);
+        u1 = u1.max(u);
+        v0 = v0.min(v);
+        v1 = v1.max(v);
+    }
+    rect_of((u0, u1, v0, v1))
+}
+
+/// Draws a photo onto `rect` of the plane; `transform` maps the photo's
+/// centred pixels to plane pixels, both at this resolution.
+pub fn warp_planar(image: &RgbaImage, transform: &Matrix3<f64>, rect: Rect) -> Warped {
+    let (cx, cy) = ((image.width() as f64 - 1.0) / 2.0, (image.height() as f64 - 1.0) / 2.0);
+    let inverse = transform.try_inverse().unwrap_or_else(Matrix3::identity);
+    let mut rgb = vec![[0.0f32; 3]; rect.width * rect.height];
+    let mut mask = vec![0u8; rect.width * rect.height];
+    rgb.par_chunks_mut(rect.width)
+        .zip(mask.par_chunks_mut(rect.width))
+        .enumerate()
+        .for_each(|(y, (row, mrow))| {
+            for x in 0..rect.width {
+                let p = inverse * Vector3::new((rect.x + x as i64) as f64, (rect.y + y as i64) as f64, 1.0);
+                if p.z.abs() < 1e-12 {
+                    continue;
+                }
+                if let Some(px) = sample_bicubic(image, p.x / p.z + cx, p.y / p.z + cy) {
+                    row[x] = px;
+                    mrow[x] = 1;
+                }
+            }
+        });
+    Warped { rect, rgb, mask }
 }
