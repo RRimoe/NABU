@@ -50,11 +50,13 @@ pub struct FillOptions {
     /// Add a horizontally mirrored source copy.
     pub mirror: bool,
     pub seed: u64,
+    /// Seed the synthesis with the hole's given pixels ([`CompleteParams::init_from_input`]).
+    pub init_from_input: bool,
 }
 
 impl Default for FillOptions {
     fn default() -> Self {
-        Self { color_adaptation: color_level("default"), rotations: Vec::new(), scale: false, mirror: false, seed: 1 }
+        Self { color_adaptation: color_level("default"), rotations: Vec::new(), scale: false, mirror: false, seed: 1, init_from_input: false }
     }
 }
 
@@ -239,7 +241,7 @@ fn fill_cow(
     if !hole.iter().any(|h| *h) {
         return Ok(img.into_owned());
     }
-    let params = CompleteParams { seed: opts.seed, adapt: opts.color_adaptation, ..Default::default() };
+    let params = CompleteParams { seed: opts.seed, adapt: opts.color_adaptation, init_from_input: opts.init_from_input, ..Default::default() };
     let gap = 2 * params.patch_radius + 2;
     let ok: Vec<bool> = par::map(w * h, true, |i| !hole[i] && source[i]);
     let src = Src { w, h, ch, img: &img, ok: &ok };
@@ -463,7 +465,7 @@ mod tests {
         let (img, hole) = stripes(w, h);
         let rgb: Vec<f32> = img.iter().flat_map(|v| [*v, *v * 0.5, 1.0 - *v]).collect();
         let src = vec![true; w * h];
-        let opts = FillOptions { color_adaptation: color_level("high"), rotations: rotation_level("low"), scale: true, mirror: true, seed: 7 };
+        let opts = FillOptions { color_adaptation: color_level("high"), rotations: rotation_level("low"), scale: true, mirror: true, seed: 7, init_from_input: false };
         let a = fill(w, h, 3, &rgb, &hole, &src, &opts);
         let b = fill(w, h, 3, &rgb, &hole, &src, &opts);
         assert_eq!(a, b);

@@ -120,11 +120,16 @@ pub struct CompleteParams {
     /// Colour adaptation of the copies.
     pub adapt: Adapt,
     pub seed: u64,
+    /// Start the coarsest level from the hole's own pixels (averaged down like the rest) instead
+    /// of peeling it from the edge. Nabu passes an inpainting network's answer in the hole this
+    /// way: its structure seeds the synthesis, and the EM iterations then replace its soft pixels
+    /// with patches of the photograph.
+    pub init_from_input: bool,
 }
 
 impl Default for CompleteParams {
     fn default() -> Self {
-        Self { patch_radius: 3, em_iters: 10, min_em_iters: 3, pm_iters: 2, refine_extent: 192, adapt: Adapt::NONE, seed: 1 }
+        Self { patch_radius: 3, em_iters: 10, min_em_iters: 3, pm_iters: 2, refine_extent: 192, adapt: Adapt::NONE, seed: 1, init_from_input: false }
     }
 }
 
@@ -1592,6 +1597,8 @@ fn complete_cow<'a>(
         exts.push(ext);
     }
     let nlev = levels.len();
+    // The hole's given pixels at the coarsest level, when they are the starting point.
+    let mut seed_img = p.init_from_input.then(|| coarsest_with_hole(w, h, ch, &levels[0].img, nlev - 1));
     // The coarser level's result.
     let mut prev: Option<Coarser> = None;
     let total_px: usize = levels.iter().map(|l| l.w * l.h).sum();
@@ -1626,6 +1633,14 @@ fn complete_cow<'a>(
         // its scaled-up matches.
         let coarser = prev.take();
         match &coarser {
+            None if seed_img.is_some() => {
+                let given = seed_img.take().unwrap_or_default();
+                for (i, k) in lpx.iter().enumerate() {
+                    if *k == Px::Hole {
+                        limg[i * ch..(i + 1) * ch].copy_from_slice(&given[i * ch..(i + 1) * ch]);
+                    }
+                }
+            }
             Some(c) => {
                 let (pw, ph) = (c.w, c.h);
                 for y in hb.y0..hb.y1 {
@@ -1757,6 +1772,36 @@ fn complete_cow<'a>(
         prev = Some(Coarser { w: lw, h: lh, img: limg, field, tbox: tb });
     }
     Ok(prev.map(|c| c.img).ok_or(Cow::Owned(Vec::new())))
+}
+
+/// `img` reduced `levels` times by plain 2×2 means, hole included: sizes match [`downsample`].
+fn coarsest_with_hole(w: usize, h: usize, ch: usize, img: &[f32], levels: usize) -> Vec<f32> {
+    let mut cur = img.to_vec();
+    let (mut cw, mut chh) = (w, h);
+    for _ in 0..levels {
+        let (nw, nh) = (cw.div_ceil(2), chh.div_ceil(2));
+        let mut next = vec![0.0f32; nw * nh * ch];
+        for y in 0..nh {
+            for x in 0..nw {
+                let mut n = 0.0f32;
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                    let (sx, sy) = (x * 2 + dx, y * 2 + dy);
+                    if sx < cw && sy < chh {
+                        for c in 0..ch {
+                            next[(y * nw + x) * ch + c] += cur[(sy * cw + sx) * ch + c];
+                        }
+                        n += 1.0;
+                    }
+                }
+                for c in 0..ch {
+                    next[(y * nw + x) * ch + c] /= n;
+                }
+            }
+        }
+        cur = next;
+        (cw, chh) = (nw, nh);
+    }
+    cur
 }
 
 /// Proximity match: the displacement `(dx, dy)` (within `max_radius`) whose surroundings best match the

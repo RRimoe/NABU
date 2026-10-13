@@ -10,6 +10,8 @@ from PhotoCraft (https://github.com/storytold/photocraft, v0.8.2):
 
 Changes for Nabu: crate paths, a local Rect, unused helpers dropped, and the
 removal of the automatic sampling area of content_aware.rs, which depends on
-PhotoCraft's segmentation. src/heal.rs, src/lib.rs and the tests are Nabu's.
+PhotoCraft's segmentation; an option to seed the fill with given pixels
+(init_from_input). src/heal.rs, src/guided.rs, src/lib.rs and the tests are
+Nabu's.
 The ArtCraft and PhotoCraft names and logos are trademarks of the ArtCraft Team
 and are not used here.

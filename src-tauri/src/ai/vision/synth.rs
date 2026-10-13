@@ -108,7 +108,7 @@ pub fn texture_energy(image: &RgbaImage, mask: &GrayImage) -> f32 {
 }
 
 /// Separable box blur over RGB using an O(1) per-pixel sliding accumulator.
-fn blur(image: &RgbaImage, radius: u32) -> RgbaImage {
+pub(super) fn blur(image: &RgbaImage, radius: u32) -> RgbaImage {
     let (w, h) = image.dimensions();
     if w == 0 || h == 0 || radius == 0 {
         return image.clone();

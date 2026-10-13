@@ -313,6 +313,10 @@ pub fn remove_region(
     // but hole. Those still go through the reduced window.
     let plan = mask_bounds(&grown).and_then(|bounds| tile_origins(bounds, window, w, h));
 
+    // The model scale: how many photograph pixels each of the network's
+    // pixels stood for, which is how soft its answer is once enlarged.
+    let model_scale = if plan.is_some() { 1.0 } else { window.width as f32 / w as f32 };
+
     let guide = match plan {
         Some(origins) => reconstruct_in_tiles(
             session, manifest, names, &cropped, &grown, &origins, w, progress,
@@ -339,26 +343,7 @@ pub fn remove_region(
 
     progress(80, "compose");
 
-    // The search grid: small enough to be affordable, and reduced with a
-    // maximum so a cell it calls known holds no hole pixels at all — which is
-    // what lets a match found here be copied at full size without dragging a
-    // piece of the removed object along with it.
-    let side = window.width.min(SYNTH_SEARCH_SIDE);
-    let search_image = image::imageops::resize(&cropped, side, side, FilterType::Triangle);
-    let search_mask = downscale_max(&grown, side, side);
-
-    let filled = if super::synth::worth_synthesising(&search_image, &search_mask) {
-        progress(88, "texture");
-        let search_guide = image::imageops::resize(&guide, side, side, FilterType::Triangle);
-        let field = super::synth::correspondence(&search_image, &search_guide, &search_mask);
-        super::synth::apply_detail(&cropped, &guide, &grown, &field)
-    } else {
-        // Nothing textured to copy, which does not mean nothing to copy. Every
-        // photograph has grain, and a hole without any of it reads as a soft
-        // patch however right its colours are.
-        progress(88, "grain");
-        super::synth::transfer_grain(&cropped, &guide, &grown)
-    };
+    let filled = put_detail(&cropped, &guide, &grown, model_scale, progress);
 
     // Last, the levels. Everything above decided *what* goes in the hole; this
     // decides that it meets the photograph without a step.
@@ -391,6 +376,122 @@ pub fn remove_region(
 
     progress(100, "done");
     Ok(output)
+}
+
+/// Puts the photograph's own texture into the network's answer.
+///
+/// Two ways, kept side by side and chosen between region by region.
+///
+/// The patch fill from the photograph, seeded with the network's answer
+/// (`nabu_retouch::fill_guided`): every pixel it puts in is a real piece of
+/// the window, so it is sharp — no soft rim, no smeared hedge. But across a
+/// big hole the synthesis is free to drift from the layout it was seeded with,
+/// usually towards whatever is easiest to copy, which is flat sky or water.
+///
+/// The detail transfer ([`legacy_detail`]) never drifts: it keeps the
+/// network's structure and only lays detail over it, which is also why it
+/// stays soft where the network was soft.
+///
+/// So the fill is used wherever it still agrees with the network at the scale
+/// the network can be trusted (low frequencies), and the transfer where it
+/// wandered off, with a soft transition between the two.
+fn put_detail(
+    cropped: &RgbaImage,
+    guide: &RgbaImage,
+    grown: &GrayImage,
+    model_scale: f32,
+    progress: ProgressFn<'_>,
+) -> RgbaImage {
+    progress(82, "texture");
+    let report = |f: f32| {
+        progress(82 + (f * 8.0) as u32, "texture");
+        true
+    };
+    let options = nabu_retouch::GuidedOptions::default();
+    let sharp = nabu_retouch::fill_guided(cropped, guide, grown, &options, &report);
+    let steady = legacy_detail(cropped, guide, grown, progress);
+    let Ok(sharp) = sharp else { return steady };
+
+    // Agreement with the network, at the scale its answer means something.
+    let radius = ((4.0 * model_scale).round() as u32).max(8);
+    let low_sharp = super::synth::blur(&sharp, radius);
+    let low_guide = super::synth::blur(guide, radius);
+    let (w, h) = cropped.dimensions();
+    // Two things decide where the sharp fill goes in. It has to agree with the
+    // network, averaged over regions so that each region is one or the other
+    // (half-and-half reads as a double exposure). And it has to be worth it:
+    // where what it put in is flat (sky, still water) the transfer is already
+    // right, and patches copied across a gradient only add faint steps.
+    let fine = super::synth::blur(&sharp, 2);
+    let mut disagreement = GrayImage::new(w, h);
+    let mut texture = GrayImage::new(w, h);
+    for (x, y, m) in grown.enumerate_pixels() {
+        if m[0] == 0 {
+            continue;
+        }
+        let (a, b) = (low_sharp.get_pixel(x, y), low_guide.get_pixel(x, y));
+        let diff = (0..3).map(|c| (a[c] as f32 - b[c] as f32).abs()).sum::<f32>() / 3.0;
+        disagreement.put_pixel(x, y, image::Luma([diff.round().min(255.0) as u8]));
+        let (p, q) = (sharp.get_pixel(x, y), fine.get_pixel(x, y));
+        let detail = (0..3).map(|c| (p[c] as f32 - q[c] as f32).abs()).sum::<f32>() / 3.0;
+        texture.put_pixel(x, y, image::Luma([(detail * 16.0).round().min(255.0) as u8]));
+    }
+    let disagreement = image::imageops::blur(&disagreement, radius as f32 * 1.5);
+    let texture = image::imageops::blur(&texture, radius as f32 * 1.5);
+    let mut trust = GrayImage::new(w, h);
+    for (x, y, d) in disagreement.enumerate_pixels() {
+        let agrees = ((AGREE_FAR - d[0] as f32) / (AGREE_FAR - AGREE_NEAR)).clamp(0.0, 1.0);
+        let textured = ((texture.get_pixel(x, y)[0] as f32 / 16.0 - FLAT) / (TEXTURED - FLAT)).clamp(0.0, 1.0);
+        trust.put_pixel(x, y, image::Luma([(agrees * textured * 255.0).round() as u8]));
+    }
+
+    let mut out = steady;
+    for (x, y, m) in grown.enumerate_pixels() {
+        if m[0] == 0 {
+            continue;
+        }
+        let t = trust.get_pixel(x, y)[0] as u16;
+        let (a, b) = (sharp.get_pixel(x, y), out.get_pixel_mut(x, y));
+        for c in 0..3 {
+            b[c] = ((a[c] as u16 * t + b[c] as u16 * (255 - t)) / 255) as u8;
+        }
+    }
+    out
+}
+
+/// Mean level difference from the network's answer, after blurring both, up to
+/// which the sharp fill is fully trusted, and from which it is not used at all.
+const AGREE_NEAR: f32 = 14.0;
+const AGREE_FAR: f32 = 20.0;
+
+/// Mean fine detail (levels off a 2-pixel blur) below which a region counts as
+/// flat, and above which as textured.
+const FLAT: f32 = 1.0;
+const TEXTURED: f32 = 2.5;
+
+/// The earlier detail transfer: matches searched on a grid of at most
+/// [`SYNTH_SEARCH_SIDE`], detail copied over the guide at full size.
+fn legacy_detail(cropped: &RgbaImage, guide: &RgbaImage, grown: &GrayImage, progress: ProgressFn<'_>) -> RgbaImage {
+    // The search grid: small enough to be affordable, and reduced with a
+    // maximum so a cell it calls known holds no hole pixels at all — which is
+    // what lets a match found here be copied at full size without dragging a
+    // piece of the removed object along with it.
+    let side = cropped.width().min(SYNTH_SEARCH_SIDE);
+    let search_image = image::imageops::resize(cropped, side, side, FilterType::Triangle);
+    let search_mask = downscale_max(grown, side, side);
+
+    if super::synth::worth_synthesising(&search_image, &search_mask) {
+        progress(88, "texture");
+        let search_guide = image::imageops::resize(guide, side, side, FilterType::Triangle);
+        let field = super::synth::correspondence(&search_image, &search_guide, &search_mask);
+        super::synth::apply_detail(cropped, guide, grown, &field)
+    } else {
+        // Nothing textured to copy, which does not mean nothing to copy. Every
+        // photograph has grain, and a hole without any of it reads as a soft
+        // patch however right its colours are.
+        progress(88, "grain");
+        super::synth::transfer_grain(cropped, guide, grown)
+    }
 }
 
 /// Sides of the grids the level correction is solved on, coarsest first.
@@ -1034,6 +1135,44 @@ fn downscale_max(mask: &GrayImage, dst_w: u32, dst_h: u32) -> GrayImage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Old against new detail stage on a real photo, with the network's answer
+    /// stood in for by the true background seen at the network's resolution.
+    /// `NABU_DETAIL_DIR` holds photo.png (object pasted in), mask.png and
+    /// truth.png; old.png and new.png are written next to them.
+    #[test]
+    #[ignore]
+    fn compare_detail_stages() {
+        let Ok(dir) = std::env::var("NABU_DETAIL_DIR") else { return };
+        let dir = std::path::Path::new(&dir);
+        let photo = image::open(dir.join("photo.png")).unwrap().to_rgba8();
+        let truth = image::open(dir.join("truth.png")).unwrap().to_rgba8();
+        let mask = image::open(dir.join("mask.png")).unwrap().to_luma8();
+        let (pw, ph) = photo.dimensions();
+        let window = context_window(mask_bounds(&mask).unwrap(), pw, ph);
+        let crop = |img: &RgbaImage| {
+            image::imageops::crop_imm(img, window.x, window.y, window.width, window.height).to_image()
+        };
+        let cropped = crop(&photo);
+        let grown = dilate(
+            &binarise(&image::imageops::crop_imm(&mask, window.x, window.y, window.width, window.height).to_image()),
+            dilation_radius(&mask, pw.min(ph)),
+        );
+        let small = image::imageops::resize(&crop(&truth), 512, 512, FilterType::Triangle);
+        let guide = image::imageops::resize(&small, window.width, window.height, FilterType::Triangle);
+        let none = |_: u32, _: &str| {};
+        let scale = window.width as f32 / 512.0;
+        for (name, filled) in [
+            ("old.png", legacy_detail(&cropped, &guide, &grown, &none)),
+            ("new.png", put_detail(&cropped, &guide, &grown, scale, &none)),
+        ] {
+            let filled = level_match(&cropped, &filled, &grown);
+            let mut out = photo.clone();
+            image::imageops::replace(&mut out, &filled, window.x as i64, window.y as i64);
+            out.save(dir.join(name)).unwrap();
+        }
+        eprintln!("window {:?}", (window.x, window.y, window.width, window.height));
+    }
 
     #[test]
     fn dilation_grows_a_point_into_a_square() {

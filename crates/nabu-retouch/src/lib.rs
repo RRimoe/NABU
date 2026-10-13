@@ -2,8 +2,9 @@
 //!
 //! The patch-based completion (PatchMatch inside Wexler's EM scheme, with the
 //! colour adaptation of Image Melding) is PhotoCraft's, used under its MIT
-//! licence; see NOTICE. Nabu's own part is [`heal`], which turns a photo and a
-//! mask into a filled photo the way the editor needs it.
+//! licence; see NOTICE. Nabu's own parts are [`heal`], which turns a photo and a
+//! mask into a filled photo the way the editor needs it, and [`fill_guided`],
+//! which makes the fill follow an inpainting network's answer.
 //!
 //! The inpainting models fill what is behind a removed object. This fills from
 //! the photo itself, at full resolution and with no download: the right tool
@@ -14,8 +15,10 @@ pub mod inpaint;
 pub mod interrupt;
 mod par;
 mod poisson;
+mod guided;
 mod heal;
 
+pub use guided::{fill_guided, GuidedOptions};
 pub use heal::{heal, HealOptions, HealError};
 pub use interrupt::{Cancelled, Interrupt};
 

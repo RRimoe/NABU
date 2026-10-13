@@ -101,3 +101,30 @@ fn rejects_bad_masks() {
     let wrong = GrayImage::new(16, 16);
     assert_eq!(heal(&photo, &wrong, &HealOptions::default(), &|_| true).unwrap_err(), HealError::SizeMismatch);
 }
+
+#[test]
+fn guided_fill_keeps_the_layout_it_is_given() {
+    // Warm left half, cool right half; the hole straddles the boundary. The
+    // guide says where the boundary goes; the fill has to keep it there and
+    // fill each side with that side's own texture.
+    let (w, h) = (160, 120);
+    let truth = RgbaImage::from_fn(w, h, |x, y| {
+        let n = ((x * 7 + y * 13) % 11) as u8 * 3;
+        if x < 80 { Rgba([200 + n / 2, 120 + n, 60, 255]) } else { Rgba([50, 90 + n, 190 + n / 2, 255]) }
+    });
+    let mask = disc(w, h, 80.0, 60.0, 25.0);
+    let mut photo = truth.clone();
+    let mut guide = truth.clone();
+    for (x, y, m) in mask.enumerate_pixels() {
+        if m[0] > 127 {
+            photo.put_pixel(x, y, Rgba([0, 255, 0, 255]));
+            // The network's answer: right layout, no texture.
+            guide.put_pixel(x, y, if x < 80 { Rgba([205, 135, 60, 255]) } else { Rgba([50, 105, 200, 255]) });
+        }
+    }
+    let filled = nabu_retouch::fill_guided(&photo, &guide, &mask, &Default::default(), &|_| true).unwrap();
+    let (l, r) = (filled.get_pixel(70, 60), filled.get_pixel(90, 60));
+    assert!(l[0] > 150 && l[2] < 110, "left of the boundary {l:?}");
+    assert!(r[2] > 150 && r[0] < 110, "right of the boundary {r:?}");
+    assert!(mean_error(&filled, &truth, &mask) < 30.0);
+}
