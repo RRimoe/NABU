@@ -70,7 +70,9 @@ photo · crop with aspect presets · free transform with rotation and mirroring
 band (tilt-shift), ellipse · corrections confined to one region · layers,
 blend modes, full history · save the work as a `.nabu` project and reopen it
 with every layer and edit still live · export to PNG, JPEG or WebP, with
-quality, size and the file weight shown first · copy and paste between photos.
+quality, size and the file weight shown first · copy and paste between photos · panoramas · a healing brush, and removal of
+what you circle even before any model is installed · batch edits of a whole
+shoot · iPhone photos (HEIC) opened directly.
 
 **With local models, downloaded once from inside the app**
 
@@ -78,7 +80,7 @@ quality, size and the file weight shown first · copy and paste between photos.
 |---|---|---|
 | Reads the scene | D-FINE nano | Apache-2.0 |
 | Cuts out what you circle | SlimSAM-77 | Apache-2.0 |
-| Removes objects and rebuilds behind them | LaMa | Apache-2.0 |
+| Removes objects and rebuilds behind them (with Nabu's own patch fill for the texture) | LaMa | Apache-2.0 |
 | Removes backgrounds | ISNet · RMBG-1.4 | Apache/MIT · non-commercial |
 | Increases resolution | Swin2SR · Real-ESRGAN | Apache-2.0 · BSD-3 |
 | Measures distance, for real depth of field | Depth Anything V2 Small | Apache-2.0 |
@@ -197,17 +199,21 @@ registry in step.
 - [x] Colour lookup tables: load any .cube file onto a layer, with an amount
 - [x] Masks: any number of linear and radial gradients, brightness ranges and
       selections per layer, each with its own sliders, moved on the photo
-- [x] Panoramas: overlapping photos in any order become one picture. SIFT
-      features, a bundle adjustment of every rotation and the lens (focal
-      length and distortion), alignment refined on the full-resolution
-      pixels, flat, cylindrical or spherical projection, exposure matching,
-      graph-cut seams and multi-band blending (`crates/nabu-stitch`)
+- [x] Panoramas: overlapping photos become one picture, in the order you
+      arrange them (or found by themselves). SIFT features, a bundle
+      adjustment of every rotation and the lens (focal length and
+      distortion), alignment refined on the full-resolution pixels, flat,
+      cylindrical or spherical projection, exposure matched between photos
+      and across each one (vignetting, phone tone mapping), graph-cut seams
+      and multi-band blending (`crates/nabu-stitch`)
 - [x] iPhone photos: HEIC/HEIF opens everywhere a photo does (window,
       drag and drop, batch, panorama, command line), decoded in pure Rust
-- [x] Content-aware fill and a healing brush (J), with no model to
-      download: PatchMatch synthesis with colour adaptation, ported from
-      PhotoCraft (MIT/Apache-2.0, `crates/nabu-retouch`, see its NOTICE)
-- [x] One command registry for everything: the command bar, the local
+- [x] One Remove: the inpainting model draws what belongs behind the
+      object, and a PatchMatch fill puts the photo's own texture into it.
+      Without the model the fill does the job alone. Plus a healing brush
+      (J). The fill is ported from PhotoCraft (MIT/Apache-2.0,
+      `crates/nabu-retouch`, see its NOTICE)
+- [x] One command registry for everything: the interface, the local
       language model, the `nabu` command line and AI agents over MCP run the
       same commands on the same pipeline
 - [x] Batch edit: one photo's edit, or a look, applied to a whole shoot and
@@ -215,6 +221,10 @@ registry in step.
 
 **Next**
 
+- [ ] **Looks that adapt to the photo** — like the iPhone's styles: a look
+      reads the measurements first (exposure, contrast, skin, sky) and sets
+      itself for this picture, instead of applying the same numbers to every
+      photo.
 - [ ] **Perspective placement** — a pasted object should sit on the surface
       you drop it on, not float. Needs surface normals (Metric3D v2, BSD-2)
       and a WebGL layer renderer, since a homography is not an affine
