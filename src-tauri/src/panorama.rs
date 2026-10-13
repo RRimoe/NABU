@@ -32,6 +32,8 @@ struct PanoramaOptions {
     projection: Option<String>,
     crop: Option<bool>,
     max_megapixels: Option<f64>,
+    /// The photos arrive in the order they were shot.
+    in_order: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -159,6 +161,7 @@ pub async fn stitch_panorama(
             },
             crop: options.crop.unwrap_or(defaults.crop),
             max_megapixels: options.max_megapixels.unwrap_or(defaults.max_megapixels).clamp(1.0, 400.0),
+            in_order: options.in_order.unwrap_or(defaults.in_order),
             ..defaults
         };
 

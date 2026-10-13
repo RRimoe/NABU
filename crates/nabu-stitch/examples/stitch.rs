@@ -1,7 +1,8 @@
 //! Stitches the photos given on the command line:
 //! `cargo run --release --example stitch -- out.png a.jpg b.jpg ...`
 //! Add `--projection rectilinear|cylindrical|spherical`, `--no-crop` or
-//! `--no-refine` before the output path to override the defaults.
+//! `--no-refine` before the output path to override the defaults, and
+//! `--in-order` when the photos are listed in shooting order.
 
 use nabu_stitch::{stitch, Options, Projection};
 use std::time::Instant;
@@ -13,6 +14,7 @@ fn main() {
         match args.remove(0).as_str() {
             "--no-crop" => options.crop = false,
             "--no-refine" => options.fine_alignment = false,
+            "--in-order" => options.in_order = true,
             "--projection" => {
                 options.projection = Some(match args.remove(0).as_str() {
                     "rectilinear" => Projection::Rectilinear,

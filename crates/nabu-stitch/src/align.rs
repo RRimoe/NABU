@@ -46,15 +46,25 @@ pub struct Pair {
 const MAX_POINTS_PER_PAIR: usize = 250;
 
 /// Matches every candidate pair and keeps those that pass verification.
+///
+/// With `max_gap`, the photos are in shooting order and only those at most
+/// that far apart in it are candidates.
 pub fn match_pairs(
     images: &[ImageFeatures],
     threshold: f64,
+    max_gap: Option<usize>,
     mut progress: impl FnMut(f32),
 ) -> Vec<Pair> {
     let n = images.len();
     let mut candidates: Vec<(usize, usize)> = Vec::new();
 
-    if n <= 10 {
+    if let Some(gap) = max_gap {
+        for i in 0..n {
+            for j in i + 1..(i + gap + 1).min(n) {
+                candidates.push((i, j));
+            }
+        }
+    } else if n <= 10 {
         for i in 0..n {
             for j in i + 1..n {
                 candidates.push((i, j));

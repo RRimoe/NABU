@@ -50,6 +50,12 @@ pub struct Options {
     pub registration_megapixels: f64,
     /// Re-measure the matches on the full-resolution photos.
     pub fine_alignment: bool,
+    /// The photos are given in the order they were shot (left to right, or
+    /// along the sweep). Only neighbours in that order are matched, which
+    /// keeps repeated patterns (windows, waves, railings) from tying together
+    /// photos that do not overlap. If that leaves a photo out, every pair is
+    /// tried after all.
+    pub in_order: bool,
 }
 
 impl Default for Options {
@@ -60,6 +66,7 @@ impl Default for Options {
             crop: true,
             registration_megapixels: 1.0,
             fine_alignment: true,
+            in_order: false,
         }
     }
 }
@@ -140,6 +147,10 @@ pub fn stitch(images: &[RgbaImage], options: &Options, progress: Progress) -> Re
     compose(images, &alignment, options, progress)
 }
 
+/// How far apart in the given order two photos may be and still be matched:
+/// next to each other, or one apart (a wide lens overlaps by more than half).
+const IN_ORDER_GAP: usize = 2;
+
 /// Steps 1–3: features, matching and the camera solution.
 pub fn align_images(images: &[RgbaImage], options: &Options, progress: Progress) -> Result<Alignment, StitchError> {
     let n = images.len();
@@ -177,13 +188,26 @@ pub fn align_images(images: &[RgbaImage], options: &Options, progress: Progress)
         .fold(0.0, f64::max);
     let threshold = (diag * 0.002).max(2.0);
     let mut cancelled = false;
-    let mut pairs = align::match_pairs(&features, threshold, |v| {
+    let mut pairs = align::match_pairs(&features, threshold, options.in_order.then_some(IN_ORDER_GAP), |v| {
         if !progress(Stage::Matching, v) {
             cancelled = true;
         }
     });
     if cancelled {
         return Err(StitchError::Cancelled);
+    }
+    if options.in_order && align::largest_component(n, &pairs).len() < n {
+        // The order given does not hold together: let the photos find each
+        // other instead.
+        debug("photos given in order do not connect; matching every pair");
+        pairs = align::match_pairs(&features, threshold, None, |v| {
+            if !progress(Stage::Matching, v) {
+                cancelled = true;
+            }
+        });
+        if cancelled {
+            return Err(StitchError::Cancelled);
+        }
     }
 
     step(progress, Stage::Aligning, 0.0)?;
@@ -268,6 +292,9 @@ fn place(surface: &Surface, lens: &Lens, rotation: &Matrix3<f64>, width: usize, 
     footprint(surface, lens, rotation, width, height).map(rect_of)
 }
 
+/// Widest field of view, in degrees, that is still shown flat by default.
+const FLAT_LIMIT: f64 = 75.0;
+
 fn choose_projection(alignment: &Alignment, images: &[RgbaImage]) -> (Projection, (f64, f64)) {
     let lens = &alignment.lens;
     let fov = |projection: Projection| -> Option<(f64, f64)> {
@@ -290,7 +317,10 @@ fn choose_projection(alignment: &Alignment, images: &[RgbaImage]) -> (Projection
         .members
         .iter()
         .all(|&m| alignment.rotations[m].column(2)[2] > 0.35);
-    let projection = if h <= 110.0 && v <= 110.0 && flat_possible {
+    // A flat projection keeps straight lines straight but stretches the
+    // edges: past about 75° the photos at the sides come out visibly pulled
+    // and enlarged, which reads as distortion. Wider sets go on a cylinder.
+    let projection = if h <= FLAT_LIMIT && v <= FLAT_LIMIT && flat_possible {
         Projection::Rectilinear
     } else if v <= 100.0 {
         Projection::Cylindrical
@@ -346,17 +376,27 @@ pub fn compose(
             warp::warp(&img, &seam_lens, &alignment.rotations[m], &seam_surface, rect)
         })
         .collect();
-    let gains = exposure::gains(&small);
     let transfer = Transfer::new();
-    let apply_gain = |rgb: &mut [[f32; 3]], gain: [f32; 3]| {
-        rgb.par_iter_mut().for_each(|p| {
-            for c in 0..3 {
-                p[c] = transfer.srgb(transfer.linear(p[c]) * gain[c]);
+    let apply_gain = |rgb: &mut [[f32; 3]], width: usize, height: usize, gain: [f32; 3], field: Option<&exposure::GainField>| {
+        rgb.par_chunks_mut(width.max(1)).enumerate().for_each(|(y, row)| {
+            let fy = (y as f32 + 0.5) / height as f32;
+            for (x, p) in row.iter_mut().enumerate() {
+                let local = field.map_or([1.0; 3], |f| f.at((x as f32 + 0.5) / width as f32, fy));
+                for c in 0..3 {
+                    p[c] = transfer.srgb(transfer.linear(p[c]) * gain[c] * local[c]);
+                }
             }
         });
     };
+    // One gain per photo first, then what varies across each photo
+    // (vignetting, the phone's local tone mapping) on top.
+    let gains = exposure::gains(&small);
     for (w, g) in small.iter_mut().zip(&gains) {
-        apply_gain(&mut w.rgb, *g);
+        apply_gain(&mut w.rgb, w.rect.width, w.rect.height, *g, None);
+    }
+    let fields = exposure::block_gains(&small);
+    for (w, f) in small.iter_mut().zip(&fields) {
+        apply_gain(&mut w.rgb, w.rect.width, w.rect.height, [1.0; 3], Some(f));
     }
     step(progress, Stage::Exposure, 1.0)?;
 
@@ -392,7 +432,7 @@ pub fn compose(
         let img = downscale(&images[m], compose_scale);
         let mut warped = warp::warp(&img, &out_lens, &alignment.rotations[m], &out_surface, out_rects[k]);
         let t1 = t0.elapsed().as_secs_f64();
-        apply_gain(&mut warped.rgb, gains[k]);
+        apply_gain(&mut warped.rgb, warped.rect.width, warped.rect.height, gains[k], Some(&fields[k]));
         let t2 = t0.elapsed().as_secs_f64();
 
         // The seam mask, grown by a pixel and brought up to this resolution.
