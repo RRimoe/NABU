@@ -46,6 +46,9 @@ const IMAGE_TYPES: Record<string, string> = {
   gif: 'image/gif',
   bmp: 'image/bmp',
   avif: 'image/avif',
+  // Decoded by the backend (src/ops/heic.ts), not by the webview.
+  heic: 'image/heic',
+  heif: 'image/heif',
 };
 
 export const imageType = (path: string): string | undefined => IMAGE_TYPES[extension(path)];

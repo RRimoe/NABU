@@ -19,6 +19,7 @@ import { loadImage, renderDocument, RENDER_THEMES } from '../engine/RenderEngine
 import { removeBackground, upscale, extractObject, removeObjectByBbox, removeSelectedRegion } from '../ai/operations';
 import { resizeByPercent, resizeLongestSide, resizeDocument } from '../ops/resize';
 import { cropDocument } from '../ops/crop';
+import { heicToDataUrl, isHeicName } from '../ops/heic';
 import { contentAwareFill, healActive, pathShape, strokeShape } from '../ops/heal';
 import { activeDevelop } from '../ops/develop';
 import { encodeCanvas, EXPORT_FORMATS, type ExportFormat } from '../ops/export';
@@ -63,7 +64,9 @@ export async function openPath(path: string): Promise<Outcome> {
   const type = imageType(path);
   if (!type) return { messageKey: 'commands.unsupportedFormat', params: { name }, handled: false };
 
-  const dataUrl = await blobToDataUrl(new Blob([bytes as BlobPart], { type }));
+  const dataUrl = isHeicName(path)
+    ? await heicToDataUrl(bytes)
+    : await blobToDataUrl(new Blob([bytes as BlobPart], { type }));
   let image: HTMLImageElement;
   try {
     image = await loadImage(dataUrl);

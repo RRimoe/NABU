@@ -5,6 +5,7 @@ pub mod ai;
 pub mod bridge;
 pub mod panorama;
 pub mod retouch;
+pub mod heic;
 
 use std::sync::Arc;
 
@@ -788,6 +789,7 @@ pub fn run() {
             panorama::cancel_panorama,
             retouch::heal_region,
             retouch::cancel_heal,
+            heic::decode_heic,
             bridge::bridge_ready,
             bridge::command_result,
             bridge::read_file,

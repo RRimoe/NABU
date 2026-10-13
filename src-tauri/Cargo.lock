@@ -2635,6 +2635,46 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "heifer"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "397b5f8e1b211f3f5af885e744b3c9646f1dae6ba22815854f6e28d1cdb43167"
+dependencies = [
+ "heifer-hevc-dec",
+ "heifer-hevc-enc",
+ "heifer-isobmff",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "heifer-hevc-dec"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f90b761515402a361a4fd65c786b33986c9f41ef9dfdb65f12ce878d8ad506dd"
+dependencies = [
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "heifer-hevc-enc"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c70a53ac73f467a1246dc17c4c143f5ea5b51099381a3b383a5fd3477a120fed"
+dependencies = [
+ "heifer-hevc-dec",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "heifer-isobmff"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0857d42d85122f8f442c1120bb5d208e2bd4c3a46d3df48c738b12b4b8e63504"
+dependencies = [
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "hermit-abi"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3882,6 +3922,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "futures-util",
+ "heifer",
  "image",
  "mistralrs",
  "nabu-cli",
@@ -9051,9 +9092,9 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 
 [[package]]
 name = "zune-core"
-version = "0.5.1"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb8a0807f7c01457d0379ba880ba6322660448ddebc890ce29bb64da71fb40f9"
+checksum = "d56377fd46368984a170bc5aac5567e52ca5da874caa60bea39fcbca78fb658b"
 
 [[package]]
 name = "zune-inflate"

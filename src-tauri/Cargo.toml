@@ -48,6 +48,8 @@ image = "0.25"
 nabu-stitch = { path = "../crates/nabu-stitch" }
 # Content-aware fill and healing, without models.
 nabu-retouch = { path = "../crates/nabu-retouch" }
+# iPhone photos (HEIC), decoded in pure Rust.
+heifer = "0.2"
 # The command line, the MCP server and the local bridge they talk to.
 nabu-cli = { path = "../crates/nabu-cli" }
 

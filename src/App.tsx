@@ -22,6 +22,7 @@ import { ResizePopover } from './components/ResizePopover';
 import { BusyOverlay } from './components/BusyOverlay';
 import { useDocumentStore, useHasDocuments, useDocumentFields } from './store/documentStore';
 import { useModelStore } from './store/modelStore';
+import { heicToDataUrl, isHeicName } from './ops/heic';
 import { useSceneStore } from './store/sceneStore';
 import { useI18nStore, useT } from './i18n';
 import { useActivityStore } from './store/activityStore';
@@ -157,31 +158,43 @@ function App() {
           });
       });
 
-      files
-        .filter((file) => file.type.startsWith('image/'))
-        .forEach((file) => {
-          const reader = new FileReader();
-          reader.onload = async (event) => {
-            const dataUrl = event.target?.result as string | undefined;
-            if (!dataUrl) return;
-            try {
-              const image = await loadImage(dataUrl);
-              openImageAsDocument(
-                file.name.replace(/\.[^/.]+$/, ''),
-                dataUrl,
-                image.naturalWidth,
-                image.naturalHeight
-              );
-              // Reading the scene is now the opening move of the whole
-              // application: the suggestions panel has nothing to say about
-              // the contents of the photo until this comes back.
-              void useSceneStore.getState().analyzeActive();
-            } catch {
-              alert(t('error.unreadableImage', { name: file.name }));
-            }
-          };
-          reader.readAsDataURL(file);
-        });
+      const open = async (file: File, dataUrl: string) => {
+        try {
+          const image = await loadImage(dataUrl);
+          openImageAsDocument(
+            file.name.replace(/\.[^/.]+$/, ''),
+            dataUrl,
+            image.naturalWidth,
+            image.naturalHeight
+          );
+          // Reading the scene is now the opening move of the whole
+          // application: the suggestions panel has nothing to say about
+          // the contents of the photo until this comes back.
+          void useSceneStore.getState().analyzeActive();
+        } catch {
+          alert(t('error.unreadableImage', { name: file.name }));
+        }
+      };
+
+      files.forEach((file) => {
+        // iPhone photos: the webview cannot read them, the backend can. Some
+        // systems give them no type at all, so the name decides.
+        if (isHeicName(file.name)) {
+          file
+            .arrayBuffer()
+            .then(heicToDataUrl)
+            .then((dataUrl) => open(file, dataUrl))
+            .catch(() => alert(t('error.unreadableImage', { name: file.name })));
+          return;
+        }
+        if (!file.type.startsWith('image/')) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const dataUrl = event.target?.result as string | undefined;
+          if (dataUrl) void open(file, dataUrl);
+        };
+        reader.readAsDataURL(file);
+      });
     },
     [openImageAsDocument, openProjectDocument, t]
   );
@@ -328,7 +341,7 @@ function App() {
           openFiles(Array.from(e.target.files ?? []));
           e.target.value = '';
         }}
-        accept={`image/*,.${PROJECT_EXTENSION}`}
+        accept={`image/*,.heic,.heif,.${PROJECT_EXTENSION}`}
         multiple
         style={{ display: 'none' }}
       />

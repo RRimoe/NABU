@@ -1,4 +1,5 @@
 // src/components/PanoramaDialog.tsx
+import { isHeicName } from '../ops/heic';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ImagePlus, Images, X } from 'lucide-react';
 import { useDocumentStore } from '../store/documentStore';
@@ -66,7 +67,8 @@ export const PanoramaDialog: React.FC<Props> = ({ onClose, initialFiles }) => {
   }, [onClose, running]);
 
   const add = (more: File[]) => {
-    const images = more.filter((file) => file.type.startsWith('image/'));
+    // HEIC goes through too: the stitcher decodes it itself.
+    const images = more.filter((file) => file.type.startsWith('image/') || isHeicName(file.name));
     setFiles((prev) => [
       ...prev,
       // The same file twice adds nothing but a perfect, useless match.
@@ -125,7 +127,7 @@ export const PanoramaDialog: React.FC<Props> = ({ onClose, initialFiles }) => {
       <input
         ref={input}
         type="file"
-        accept="image/*"
+        accept="image/*,.heic,.heif"
         multiple
         style={{ display: 'none' }}
         onChange={(e) => {

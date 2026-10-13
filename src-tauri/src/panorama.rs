@@ -101,6 +101,9 @@ fn unpack(body: &[u8]) -> NabuResult<Vec<&[u8]>> {
 /// Decodes a camera file upright: phones store most photos sideways and
 /// record the turn in EXIF, and stitching them sideways would fail.
 fn decode(bytes: &[u8]) -> NabuResult<RgbaImage> {
+    if crate::heic::is_heif(bytes) {
+        return crate::heic::decode(bytes);
+    }
     let reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .map_err(error::undecodable_image)?;

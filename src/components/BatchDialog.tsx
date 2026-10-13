@@ -52,7 +52,7 @@ const readSaved = (): Settings => {
   return DEFAULTS;
 };
 
-const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif'];
+const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif', 'heic', 'heif'];
 
 /**
  * One edit, many photos.

@@ -202,6 +202,8 @@ registry in step.
       length and distortion), alignment refined on the full-resolution
       pixels, flat, cylindrical or spherical projection, exposure matching,
       graph-cut seams and multi-band blending (`crates/nabu-stitch`)
+- [x] iPhone photos: HEIC/HEIF opens everywhere a photo does (window,
+      drag and drop, batch, panorama, command line), decoded in pure Rust
 - [x] Content-aware fill and a healing brush (J), with no model to
       download: PatchMatch synthesis with colour adaptation, ported from
       PhotoCraft (MIT/Apache-2.0, `crates/nabu-retouch`, see its NOTICE)
