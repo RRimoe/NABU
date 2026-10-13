@@ -1,6 +1,6 @@
 // src/components/AdjustPanel.tsx
 import { RotateCcw } from 'lucide-react';
-import { useDocumentStore, useActiveDocument } from '../store/documentStore';
+import { useActiveDocument, useDocumentFields } from '../store/documentStore';
 import {
   type Adjustments,
   ADJUSTMENT_RANGES,
@@ -40,7 +40,7 @@ const GROUPS: Group[] = [
 
 export const AdjustPanel: React.FC = () => {
   const doc = useActiveDocument();
-  const { setAdjustment, commitAdjustments, resetAdjustments } = useDocumentStore();
+  const { setAdjustment, commitAdjustments, resetAdjustments } = useDocumentFields('setAdjustment', 'commitAdjustments', 'resetAdjustments');
   const t = useT();
 
   const layerId = doc?.activeLayerId ?? null;

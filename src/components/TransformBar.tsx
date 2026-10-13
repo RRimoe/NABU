@@ -1,7 +1,7 @@
 // src/components/TransformBar.tsx
 import { useState } from 'react';
 import { Blend, Check, FlipHorizontal, FlipVertical, RotateCcw, RotateCw } from 'lucide-react';
-import { useDocumentStore, useActiveDocument } from '../store/documentStore';
+import { useActiveDocument, useDocumentFields } from '../store/documentStore';
 import { canBlend } from '../ops/blend';
 import { BlendPopover } from './BlendPopover';
 import { useT } from '../i18n';
@@ -23,7 +23,7 @@ const QUARTER = Math.PI / 2;
  */
 export const TransformBar: React.FC<Props> = ({ layerId, onDone }) => {
   const doc = useActiveDocument();
-  const { setLayerTransform, commitTransform, resetTransform } = useDocumentStore();
+  const { setLayerTransform, commitTransform, resetTransform } = useDocumentFields('setLayerTransform', 'commitTransform', 'resetTransform');
   const [blending, setBlending] = useState(false);
   const t = useT();
 

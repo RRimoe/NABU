@@ -1,5 +1,6 @@
 // src/store/documentStore.ts
 import { create } from 'zustand';
+import { useShallow } from 'zustand/react/shallow';
 import {
   NabuDocument,
   LayerNode,
@@ -1300,3 +1301,21 @@ export const useCanRedo = () =>
     const session = s.sessions[s.activeId];
     return session ? session.historyIndex < session.history.length - 1 : false;
   });
+
+/**
+ * Subscribes a component to some fields of the store.
+ *
+ * `useDocumentStore()` with no selector re-renders on every change anywhere in
+ * the store, which during a slider drag means the whole interface re-rendering
+ * sixty times a second for one number. This re-renders only when one of the
+ * named fields changes; actions never do.
+ */
+export function useDocumentFields<K extends keyof DocumentState>(...keys: K[]): Pick<DocumentState, K> {
+  return useDocumentStore(
+    useShallow((state) => {
+      const picked = {} as Pick<DocumentState, K>;
+      for (const key of keys) picked[key] = state[key];
+      return picked;
+    })
+  );
+}

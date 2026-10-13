@@ -658,6 +658,8 @@ export class AdjustmentProcessor {
    * simply miss, which is what happened every time before.
    */
   private blurCache: { key: string; texture: WebGLTexture } | null = null;
+  /** The last source image uploaded, kept on the GPU for the same reason. */
+  private sourceCache: { key: string; texture: WebGLTexture } | null = null;
   private failed = false;
 
   constructor() {
@@ -808,7 +810,13 @@ export class AdjustmentProcessor {
      */
     cacheKey?: string,
     /** A colour lookup table, as shaderLut() returns it. */
-    lut?: { size: number; rgb: Uint8Array; amount: number; key: string }
+    lut?: { size: number; rgb: Uint8Array; amount: number; key: string },
+    /**
+     * Size of `image` relative to the photo it stands for. A preview runs on a
+     * reduced copy, and radii given in photo pixels (blur, clarity, dehaze)
+     * shrink with it, or the preview would look blurrier than the result.
+     */
+    pixelScale = 1
   ): HTMLCanvasElement | null {
     const flatCurves = areCurvesNeutral(curves);
     // A mask that has not finished decoding yet is treated as no focus at all:
@@ -821,20 +829,34 @@ export class AdjustmentProcessor {
     if (this.failed || (isNeutral(adjustments) && flatCurves && !activeFocus && !lut)) return null;
 
     const gl = this.gl!;
-    this.canvas.width = width;
-    this.canvas.height = height;
+    // Assigning a canvas size reallocates its buffer even when it is the same.
+    if (this.canvas.width !== width) this.canvas.width = width;
+    if (this.canvas.height !== height) this.canvas.height = height;
 
     const framebuffer = gl.createFramebuffer()!;
     const created: WebGLTexture[] = [];
 
     try {
-      // Upload the source image.
-      const sourceTexture = this.makeTexture(width, height);
-      created.push(sourceTexture);
-      gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, image);
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+      // Upload the source image, unless it is already on the GPU. A slider
+      // drag changes only the settings: sending tens of megabytes of the same
+      // pixels to the graphics card on every step was most of its cost.
+      const sourceKey = cacheKey ? `${cacheKey}|${width}x${height}` : null;
+      let sourceTexture: WebGLTexture;
+      if (sourceKey && this.sourceCache?.key === sourceKey) {
+        sourceTexture = this.sourceCache.texture;
+      } else {
+        sourceTexture = this.makeTexture(width, height);
+        gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+        if (sourceKey) {
+          if (this.sourceCache) gl.deleteTexture(this.sourceCache.texture);
+          this.sourceCache = { key: sourceKey, texture: sourceTexture };
+        } else {
+          created.push(sourceTexture);
+        }
+      }
 
       // One blurred copy serves the blur slider, clarity's reference and the
       // focus effect, so the widest request wins. Scaling the focus radius by
@@ -846,10 +868,10 @@ export class AdjustmentProcessor {
       const needsClarity = adjustments.clarity !== 0;
       const needsDehaze = Boolean(adjustments.dehaze);
       const radius = Math.max(
-        adjustments.blur,
+        adjustments.blur * pixelScale,
         focusRadius,
-        needsClarity ? CLARITY_RADIUS : 0,
-        needsDehaze ? DEHAZE_RADIUS : 0
+        needsClarity ? CLARITY_RADIUS * pixelScale : 0,
+        needsDehaze ? DEHAZE_RADIUS * pixelScale : 0
       );
 
       // The blurred copy is the expensive part of the pass — two separable

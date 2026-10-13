@@ -9,7 +9,7 @@ import {
   SlidersHorizontal,
   SquareDashed,
 } from 'lucide-react';
-import { useDocumentStore, type DockPanel } from '../store/documentStore';
+import { type DockPanel, useDocumentFields } from '../store/documentStore';
 import type { ToolType } from '../types/document';
 import { useT } from '../i18n';
 
@@ -29,7 +29,7 @@ interface Props {
  * which technology edits it.
  */
 export const LeftRail: React.FC<Props> = ({ hasPhoto }) => {
-  const { activeTool, setActiveTool, dockPanel, setDockPanel } = useDocumentStore();
+  const { activeTool, setActiveTool, dockPanel, setDockPanel } = useDocumentFields('activeTool', 'setActiveTool', 'dockPanel', 'setDockPanel');
   const t = useT();
 
   /** A rail entry that switches the canvas into a mode. */

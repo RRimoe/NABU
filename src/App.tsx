@@ -20,7 +20,7 @@ import { EmptyState } from './components/EmptyState';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ResizePopover } from './components/ResizePopover';
 import { BusyOverlay } from './components/BusyOverlay';
-import { useDocumentStore, useActiveDocument, useHasDocuments } from './store/documentStore';
+import { useDocumentStore, useHasDocuments, useDocumentFields } from './store/documentStore';
 import { useModelStore } from './store/modelStore';
 import { useSceneStore } from './store/sceneStore';
 import { useI18nStore, useT } from './i18n';
@@ -45,7 +45,6 @@ import { connectBridge } from './commands/bridge';
 import './App.css';
 
 function App() {
-  const doc = useActiveDocument();
   const hasDocuments = useHasDocuments();
   const {
     undo,
@@ -67,7 +66,27 @@ function App() {
     updateAIProgress,
     brushSize,
     setBrushSize,
-  } = useDocumentStore();
+  } = useDocumentFields(
+    'undo',
+    'redo',
+    'theme',
+    'refineMode',
+    'setRefineMode',
+    'setSelection',
+    'activeTool',
+    'setActiveTool',
+    'selectionShape',
+    'setSelectionShape',
+    'focusEditing',
+    'setFocusEditing',
+    'dockPanel',
+    'setDockPanel',
+    'openImageAsDocument',
+    'openProjectDocument',
+    'updateAIProgress',
+    'brushSize',
+    'setBrushSize',
+  );
   const { subscribe, refresh, loadAccelerator } = useModelStore();
   const loadExternalLanguages = useI18nStore((s) => s.loadExternal);
   const t = useT();
@@ -169,9 +188,13 @@ function App() {
 
   /** Writes the active document as a .nabu project, every edit still live. */
   const saveProject = useCallback(() => {
+    // Read at the moment of saving: subscribing the whole application to the
+    // document would re-render every panel on each step of a slider drag.
+    const { sessions, activeId } = useDocumentStore.getState();
+    const doc = sessions[activeId]?.document;
     if (!doc) return;
     downloadBlob(projectBlob(doc), safeFileName(doc.title, PROJECT_EXTENSION));
-  }, [doc]);
+  }, []);
 
   // Global shortcuts
   useEffect(() => {

@@ -1,6 +1,6 @@
 // src/components/SelectionActions.tsx
 import { Scissors, Brush, X, Lightbulb, Eraser } from 'lucide-react';
-import { useDocumentStore, useActiveDocument } from '../store/documentStore';
+import { useActiveDocument, useDocumentFields } from '../store/documentStore';
 import { extractObject, removeSelectedRegion } from '../ai/operations';
 import { useT } from '../i18n';
 
@@ -17,7 +17,7 @@ interface Props {
  */
 export const SelectionActions: React.FC<Props> = ({ x, y }) => {
   const doc = useActiveDocument();
-  const { setSelection, setRefineMode, isAIBusy } = useDocumentStore();
+  const { setSelection, setRefineMode, isAIBusy } = useDocumentFields('setSelection', 'setRefineMode', 'isAIBusy');
   const t = useT();
 
   const activeLayer = doc?.activeLayerId ? doc.layers[doc.activeLayerId] : null;

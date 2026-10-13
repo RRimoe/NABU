@@ -5,8 +5,7 @@ import {
   useActiveDocument,
   useViewport,
   useSelection,
-  useOriginal,
-} from '../store/documentStore';
+  useOriginal, useDocumentFields } from '../store/documentStore';
 import {
   RenderEngine,
   RENDER_THEMES,
@@ -98,7 +97,32 @@ export const CanvasViewport: React.FC = () => {
     compare,
     compareSplit,
     setCompareSplit,
-  } = useDocumentStore();
+  } = useDocumentFields(
+    'theme',
+    'activeTool',
+    'setActiveTool',
+    'refineMode',
+    'refineSize',
+    'selectionShape',
+    'focusEditing',
+    'setFocusEditing',
+    'setViewport',
+    'setSelection',
+    'updateLayer',
+    'fitRequestId',
+    'activeId',
+    'selectionBrush',
+    'setLayerTransform',
+    'commitTransform',
+    'pointRefine',
+    'setPointRefine',
+    'brushSize',
+    'brushOpacity',
+    'brushColor',
+    'compare',
+    'compareSplit',
+    'setCompareSplit',
+  );
 
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [isPanning, setIsPanning] = useState(false);

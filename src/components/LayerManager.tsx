@@ -11,7 +11,7 @@ import {
   Sparkles,
   Image as ImageIcon,
 } from 'lucide-react';
-import { useDocumentStore, useActiveDocument } from '../store/documentStore';
+import { useActiveDocument, useDocumentFields } from '../store/documentStore';
 import { BlendMode } from '../types/document';
 import { useT } from '../i18n';
 
@@ -45,7 +45,16 @@ export const LayerManager: React.FC = () => {
     addLayer,
     removeLayer,
     reorderLayers,
-  } = useDocumentStore();
+  } = useDocumentFields(
+    'setActiveLayer',
+    'toggleLayerVisibility',
+    'toggleLayerLock',
+    'setLayerBlendMode',
+    'setLayerOpacity',
+    'addLayer',
+    'removeLayer',
+    'reorderLayers',
+  );
   const t = useT();
 
   if (!document) return null;

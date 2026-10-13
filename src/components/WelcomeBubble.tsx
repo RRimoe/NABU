@@ -1,6 +1,6 @@
 // src/components/WelcomeBubble.tsx
 import { Sparkles, TrendingUp, X } from 'lucide-react';
-import { useDocumentStore, useActiveDocument } from '../store/documentStore';
+import { useActiveDocument, useDocumentFields } from '../store/documentStore';
 import { removeBackground, upscale } from '../ai/operations';
 import { useT } from '../i18n';
 
@@ -18,7 +18,7 @@ interface Props {
  */
 export const WelcomeBubble: React.FC<Props> = ({ x, y }) => {
   const doc = useActiveDocument();
-  const { isAIBusy, dismissWelcome, welcomeDismissed } = useDocumentStore();
+  const { isAIBusy, dismissWelcome, welcomeDismissed } = useDocumentFields('isAIBusy', 'dismissWelcome', 'welcomeDismissed');
   const t = useT();
 
   const hasImage = Boolean(

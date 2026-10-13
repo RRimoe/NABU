@@ -1,6 +1,6 @@
 // src/components/FocusGuide.tsx
 import { useEffect, useRef, useState } from 'react';
-import { useDocumentStore, useActiveDocument, useViewport } from '../store/documentStore';
+import { useActiveDocument, useViewport, useDocumentFields } from '../store/documentStore';
 import { NEUTRAL_FOCUS, type FocusEffect } from '../types/document';
 
 interface Props {
@@ -28,7 +28,7 @@ const MIN_SIZE = 0.02;
 export const FocusGuide: React.FC<Props> = ({ containerWidth, containerHeight }) => {
   const doc = useActiveDocument();
   const viewport = useViewport();
-  const { setFocus, commitFocus } = useDocumentStore();
+  const { setFocus, commitFocus } = useDocumentFields('setFocus', 'commitFocus');
 
   const gripRef = useRef<Grip | null>(null);
   const [active, setActive] = useState<Grip | null>(null);

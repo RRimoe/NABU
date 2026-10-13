@@ -1,6 +1,6 @@
 // src/components/BrushBar.tsx
 import { Check } from 'lucide-react';
-import { useActiveDocument, useDocumentStore } from '../store/documentStore';
+import { useActiveDocument, useDocumentFields } from '../store/documentStore';
 import { canPaint } from '../ops/paint';
 import { useT } from '../i18n';
 
@@ -26,7 +26,15 @@ export const BrushBar: React.FC<Props> = ({ onDone }) => {
     setBrushSize,
     setBrushOpacity,
     setBrushColor,
-  } = useDocumentStore();
+  } = useDocumentFields(
+    'activeTool',
+    'brushSize',
+    'brushOpacity',
+    'brushColor',
+    'setBrushSize',
+    'setBrushOpacity',
+    'setBrushColor',
+  );
   const t = useT();
 
   const erasing = activeTool === 'eraser';

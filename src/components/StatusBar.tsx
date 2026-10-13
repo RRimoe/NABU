@@ -9,13 +9,7 @@ import {
   RotateCw,
   Square,
 } from 'lucide-react';
-import {
-  useDocumentStore,
-  useViewport,
-  useActiveDocument,
-  useCanUndo,
-  useCanRedo,
-} from '../store/documentStore';
+import { useDocumentStore, useViewport, useActiveDocument, useCanUndo, useCanRedo, useDocumentFields } from '../store/documentStore';
 import { useSceneStore } from '../store/sceneStore';
 import { useModelStore } from '../store/modelStore';
 import { useAdviceStore } from '../store/adviceStore';
@@ -54,7 +48,15 @@ export const StatusBar: React.FC<Props> = ({
   const viewport = useViewport();
   const doc = useActiveDocument();
   const { undo, redo, requestFitToScreen, selectionShape, setSelectionShape, compare, setCompare } =
-    useDocumentStore();
+    useDocumentFields(
+      'undo',
+      'redo',
+      'requestFitToScreen',
+      'selectionShape',
+      'setSelectionShape',
+      'compare',
+      'setCompare'
+    );
   const canUndo = useCanUndo();
   const canRedo = useCanRedo();
   const models = useModelStore((s) => s.models);

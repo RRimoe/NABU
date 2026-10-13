@@ -658,9 +658,15 @@ async fn advise_scene(
 }
 
 /// Accelerator detected on this machine, shown in the status bar.
+///
+/// Asynchronous and off the main thread: probing for DirectML or CoreML loads
+/// ONNX Runtime, and a synchronous command runs on the thread that draws the
+/// window, which froze the interface while the application was starting.
 #[tauri::command]
-fn accelerator_label() -> String {
-    engine::detect_accelerator().label().to_string()
+async fn accelerator_label() -> String {
+    tauri::async_runtime::spawn_blocking(|| engine::detect_accelerator().label().to_string())
+        .await
+        .unwrap_or_else(|_| "CPU".to_string())
 }
 
 /// Progress of a running AI task, emitted to the interface.

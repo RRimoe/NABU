@@ -1,7 +1,7 @@
 // src/components/FiltersPanel.tsx
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Palette, Plus, Check } from 'lucide-react';
-import { useDocumentStore, useActiveDocument } from '../store/documentStore';
+import { useActiveDocument, useDocumentFields } from '../store/documentStore';
 import { FILTERS, FILTER_GROUPS, previewAdjustments } from '../engine/filters';
 import { adjustmentKey, sharedProcessor } from '../engine/adjustments';
 import { loadImage } from '../engine/RenderEngine';
@@ -30,7 +30,7 @@ const BATCH = 4;
  */
 export const FiltersPanel: React.FC<Props> = ({ onClose }) => {
   const doc = useActiveDocument();
-  const { setLayerFilter, setFilterAmount, commitFilter } = useDocumentStore();
+  const { setLayerFilter, setFilterAmount, commitFilter } = useDocumentFields('setLayerFilter', 'setFilterAmount', 'commitFilter');
   const t = useT();
   const { looks, save: saveLook, remove: removeLook } = useLookStore();
   /** Name being typed for a new look; null while the field is closed. */
@@ -58,6 +58,7 @@ export const FiltersPanel: React.FC<Props> = ({ onClose }) => {
   // and rebuilding twenty thumbnails per frame would make the panel stutter.
   // The key changes only when a value really does.
   const baseRef = useRef(base);
+  const thumbRef = useRef<{ source: string; canvas: HTMLCanvasElement } | null>(null);
   baseRef.current = base;
 
   useEffect(() => {
@@ -70,28 +71,32 @@ export const FiltersPanel: React.FC<Props> = ({ onClose }) => {
     let cancelled = false;
 
     const build = async () => {
-      const image = await loadImage(source);
-
-      // Square centre crop: the grid reads as a grid, and a panoramic photo
-      // does not turn every tile into a letterbox.
-      const side = Math.min(image.naturalWidth, image.naturalHeight);
-      const thumb = window.document.createElement('canvas');
-      thumb.width = THUMB_SIZE;
-      thumb.height = THUMB_SIZE;
-      const ctx = thumb.getContext('2d');
-      if (!ctx) return;
-      ctx.drawImage(
-        image,
-        (image.naturalWidth - side) / 2,
-        (image.naturalHeight - side) / 2,
-        side,
-        side,
-        0,
-        0,
-        THUMB_SIZE,
-        THUMB_SIZE
-      );
-
+      // The thumbnail is cut once per photo. Decoding the full-size picture
+      // again for every slider step was the panel's whole cost while dragging.
+      let thumb = thumbRef.current?.source === source ? thumbRef.current.canvas : null;
+      if (!thumb) {
+        const image = await loadImage(source);
+        // Square centre crop: the grid reads as a grid, and a panoramic photo
+        // does not turn every tile into a letterbox.
+        const side = Math.min(image.naturalWidth, image.naturalHeight);
+        thumb = window.document.createElement('canvas');
+        thumb.width = THUMB_SIZE;
+        thumb.height = THUMB_SIZE;
+        const ctx = thumb.getContext('2d');
+        if (!ctx) return;
+        ctx.drawImage(
+          image,
+          (image.naturalWidth - side) / 2,
+          (image.naturalHeight - side) / 2,
+          side,
+          side,
+          0,
+          0,
+          THUMB_SIZE,
+          THUMB_SIZE
+        );
+        thumbRef.current = { source, canvas: thumb };
+      }
       if (cancelled) return;
 
       const processor = sharedProcessor();
@@ -128,12 +133,17 @@ export const FiltersPanel: React.FC<Props> = ({ onClose }) => {
       step();
     };
 
-    void build().catch(() => {
-      if (!cancelled) setPreviews({});
-    });
+    // Wait for the sliders to rest: the tiles follow the photo, and redoing
+    // them for each step of a drag would compete with the drag itself.
+    const timer = window.setTimeout(() => {
+      void build().catch(() => {
+        if (!cancelled) setPreviews({});
+      });
+    }, thumbRef.current?.source === source ? 250 : 0);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
       window.cancelAnimationFrame(frameRef.current);
     };
   }, [source, baseKey, looksKey]);

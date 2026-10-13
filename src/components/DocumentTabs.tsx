@@ -1,6 +1,6 @@
 // src/components/DocumentTabs.tsx
 import { X } from 'lucide-react';
-import { useDocumentStore } from '../store/documentStore';
+import { useDocumentFields } from '../store/documentStore';
 import { useT } from '../i18n';
 
 /**
@@ -10,7 +10,7 @@ import { useT } from '../i18n';
  * a row of interface that says nothing.
  */
 export const DocumentTabs: React.FC = () => {
-  const { sessions, order, activeId, setActiveDocument, closeDocument } = useDocumentStore();
+  const { sessions, order, activeId, setActiveDocument, closeDocument } = useDocumentFields('sessions', 'order', 'activeId', 'setActiveDocument', 'closeDocument');
   const t = useT();
 
   if (order.length < 2) return null;

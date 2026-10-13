@@ -16,7 +16,7 @@ import {
   Images,
   Layers,
 } from 'lucide-react';
-import { useDocumentStore, useActiveDocument } from '../store/documentStore';
+import { useDocumentStore, useActiveDocument, useDocumentFields } from '../store/documentStore';
 import { useSceneStore } from '../store/sceneStore';
 import { copySelection, pasteClipboard } from '../ops/clipboard';
 import { activeDevelop, copyDevelop, pasteDevelop } from '../ops/develop';
@@ -55,7 +55,7 @@ export const TopBar: React.FC<Props> = ({
   hasPhoto,
 }) => {
   const doc = useActiveDocument();
-  const { theme, toggleTheme } = useDocumentStore();
+  const { theme, toggleTheme } = useDocumentFields('theme', 'toggleTheme');
   const clipboard = useDocumentStore((s) => s.clipboard);
   const developClipboard = useDocumentStore((s) => s.developClipboard);
   const analyzing = useSceneStore((s) => Object.keys(s.pending).length > 0);

@@ -1,5 +1,5 @@
 // src/components/BusyOverlay.tsx
-import { useDocumentStore } from '../store/documentStore';
+import { useDocumentFields } from '../store/documentStore';
 import { useT } from '../i18n';
 
 /**
@@ -11,7 +11,7 @@ import { useT } from '../i18n';
  * progress that is not happening.
  */
 export const BusyOverlay: React.FC = () => {
-  const { isAIBusy, aiProgress, aiStatusMessage } = useDocumentStore();
+  const { isAIBusy, aiProgress, aiStatusMessage } = useDocumentFields('isAIBusy', 'aiProgress', 'aiStatusMessage');
   const t = useT();
 
   if (!isAIBusy) return null;

@@ -1,6 +1,6 @@
 // src/components/RefineBar.tsx
 import { Eraser, Undo2, Check } from 'lucide-react';
-import { useDocumentStore } from '../store/documentStore';
+import { useDocumentFields } from '../store/documentStore';
 import { useT } from '../i18n';
 
 /**
@@ -11,7 +11,7 @@ import { useT } from '../i18n';
  * interface.
  */
 export const RefineBar: React.FC = () => {
-  const { refineMode, setRefineMode, refineSize, setRefineSize } = useDocumentStore();
+  const { refineMode, setRefineMode, refineSize, setRefineSize } = useDocumentFields('refineMode', 'setRefineMode', 'refineSize', 'setRefineSize');
   const t = useT();
 
   return (

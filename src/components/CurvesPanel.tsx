@@ -1,7 +1,7 @@
 // src/components/CurvesPanel.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
-import { useDocumentStore, useActiveDocument } from '../store/documentStore';
+import { useActiveDocument, useDocumentFields } from '../store/documentStore';
 import {
   type CurveChannel,
   type CurvePoint,
@@ -45,7 +45,7 @@ const CHANNEL_COLOURS: Record<CurveChannel, string> = {
  */
 export const CurvesPanel: React.FC = () => {
   const doc = useActiveDocument();
-  const { setCurve, commitCurves, resetCurves } = useDocumentStore();
+  const { setCurve, commitCurves, resetCurves } = useDocumentFields('setCurve', 'commitCurves', 'resetCurves');
   const t = useT();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);

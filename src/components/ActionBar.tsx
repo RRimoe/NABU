@@ -10,7 +10,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { useDocumentStore, useActiveDocument, useSelection } from '../store/documentStore';
+import { useDocumentStore, useActiveDocument, useSelection, useDocumentFields } from '../store/documentStore';
 import { useModelStore } from '../store/modelStore';
 import { useSceneStore } from '../store/sceneStore';
 import { extractObject, removeSelectedRegion } from '../ai/operations';
@@ -44,7 +44,7 @@ export const ActionBar: React.FC = () => {
   const doc = useActiveDocument();
   const selection = useSelection();
   const activeId = useDocumentStore((s) => s.activeId);
-  const { isAIBusy, setSelection, setRefineMode } = useDocumentStore();
+  const { isAIBusy, setSelection, setRefineMode } = useDocumentFields('isAIBusy', 'setSelection', 'setRefineMode');
   const readyFor = useModelStore((s) => s.readyFor);
   const scene = useSceneStore((s) => s.entries[activeId]?.scene ?? null);
   const t = useT();

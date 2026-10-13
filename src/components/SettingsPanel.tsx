@@ -1,7 +1,7 @@
 // src/components/SettingsPanel.tsx
 import { useEffect } from 'react';
 import { X, Moon, Sun, Languages, HardDrive, ChevronRight } from 'lucide-react';
-import { useDocumentStore } from '../store/documentStore';
+import { useDocumentFields } from '../store/documentStore';
 import { useModelStore } from '../store/modelStore';
 import { useI18nStore, useT } from '../i18n';
 import { formatBytes } from '../types/models';
@@ -19,7 +19,7 @@ interface Props {
  * Anything that belongs to editing lives next to the photo instead.
  */
 export const SettingsPanel: React.FC<Props> = ({ open, onClose, onOpenModels }) => {
-  const { theme, setTheme } = useDocumentStore();
+  const { theme, setTheme } = useDocumentFields('theme', 'setTheme');
   const models = useModelStore((s) => s.models);
   const { languages, current, setLanguage } = useI18nStore();
   const t = useT();

@@ -38,6 +38,22 @@ export interface RenderTheme {
  * The canvas paints outside CSS, so these have to be kept in step with the
  * variables in App.css by hand. Same blues, same faint tint in the greys.
  */
+/**
+ * How long settings must rest before the preview is redrawn at screen size.
+ * Short enough to read as "it sharpens when I let go", long enough that a slow
+ * drag does not pay for full renders between steps.
+ */
+const SETTLE_MS = 160;
+
+/** Pixels a live preview works on while a slider moves, at most. */
+const PREVIEW_PIXELS = 2_500_000;
+
+/** Power-of-two reduction that brings a photo down to the preview budget. */
+function proxyScale(width: number, height: number): number {
+  const fraction = Math.sqrt(PREVIEW_PIXELS / Math.max(1, width * height));
+  return fraction >= 1 ? 1 : 2 ** Math.floor(Math.log2(fraction));
+}
+
 export const RENDER_THEMES: Record<ThemeMode, RenderTheme> = {
   dark: {
     viewportBg: '#0d1117',
@@ -302,7 +318,19 @@ export class RenderEngine {
    * results: re-running the shader on every frame would drop the frame rate
    * while panning, and reusing a stale one would ignore a moved slider.
    */
-  private adjusted = new Map<string, { signature: string; canvas: HTMLCanvasElement }>();
+  private adjusted = new Map<
+    string,
+    { settings: string; scale: number; canvas: HTMLCanvasElement }
+  >();
+  /** When each layer's settings last changed, to tell a drag from a rest. */
+  private lastChange = new Map<string, number>();
+  private settleTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Halved copies of each photo, for drawing and processing it small. */
+  private levels = new WeakMap<HTMLImageElement, HTMLCanvasElement[]>();
+  private imageIds = new WeakMap<HTMLImageElement, number>();
+  private nextImageId = 0;
+  /** Zoom of the frame being drawn. */
+  private zoom = 1;
 
   /**
    * Masks converted from brightness to alpha, keyed by source and size.
@@ -314,7 +342,9 @@ export class RenderEngine {
 
   constructor(canvas: HTMLCanvasElement, onImageLoaded?: () => void) {
     this.canvas = canvas;
-    const context = canvas.getContext('2d', { willReadFrequently: true });
+    // No willReadFrequently: nothing reads this canvas back, and the flag
+    // moves it off the GPU, which made every frame of a large photo a CPU job.
+    const context = canvas.getContext('2d');
     if (!context) {
       throw new Error('Could not acquire the Canvas 2D context');
     }
@@ -431,6 +461,10 @@ export class RenderEngine {
       return null;
     }
 
+    // The screen shows the photo at some fraction of its size; working on more
+    // pixels than that is paid for on every frame and seen by nobody.
+    const display = this.displayScale(width, height);
+
     // Sliders and the chosen look collapse into one set of values before they
     // reach the shader, so a filter costs no extra pass.
     const adjustments = effectiveAdjustments(layer);
@@ -449,7 +483,7 @@ export class RenderEngine {
       masks.length === 0
     ) {
       this.adjusted.delete(cacheId);
-      return null;
+      return display < 1 ? this.level(image, display) : null;
     }
 
     // The mask goes through the same cache as any other image, so a frame
@@ -475,28 +509,47 @@ export class RenderEngine {
       // A selection mask that has not decoded yet must not be cached as final.
       masks.filter((m) => m.maskDataUrl && this.getImage(m.maskDataUrl)).length,
     ].join('#');
-    const signature = `${layer.imageDataUrl?.length ?? 0}|${width}x${height}|${key}`;
+    // Identifies the pixels, not the settings: the processor keeps the photo
+    // and its blurred copy on the GPU across calls about the same image, which
+    // is what makes dragging a slider or a tilt-shift feel live.
+    const pixelKey = `${layerId}|${this.imageId(image)}`;
+    const settings = `${pixelKey}|${width}x${height}|${key}`;
+
+    // While the settings are moving, work on a reduced copy and come back for
+    // the screen-sized result once they rest: the same trade every raw
+    // developer makes, because a slider that lags is worse than a preview that
+    // sharpens a moment after it stops.
+    const now = performance.now();
     const cached = this.adjusted.get(cacheId);
-    if (cached && cached.signature === signature) return cached.canvas;
+    if (cached?.settings !== settings) this.lastChange.set(cacheId, now);
+    let scale = display;
+    if (now - (this.lastChange.get(cacheId) ?? 0) < SETTLE_MS) {
+      scale = Math.min(display, proxyScale(width, height));
+      if (scale < display) this.scheduleSettle();
+    }
+    if (cached && cached.settings === settings && cached.scale >= scale) return cached.canvas;
+
+    const source = this.level(image, scale);
+    const w = scale < 1 ? (source as HTMLCanvasElement).width : width;
+    const h = scale < 1 ? (source as HTMLCanvasElement).height : height;
+    const run = (input: TexImageSource, values: Adjustments, withKey = true) =>
+      this.adjuster.process(
+        input,
+        w,
+        h,
+        values,
+        curves,
+        focus,
+        mask,
+        withKey ? `${pixelKey}|${scale}` : undefined,
+        lut,
+        scale
+      );
 
     // A bent curve or a focus effect on untouched sliders still has work to
     // do, so the neutral set is passed rather than skipping the pass.
     const base = adjustments ?? NEUTRAL_ADJUSTMENTS;
-    // Identifies the pixels, not the settings: the processor reuses its blurred
-    // copy across calls about the same image, which is what makes dragging a
-    // tilt-shift across a photograph feel live.
-    const pixelKey = `${layerId}|${layer.imageDataUrl?.length ?? 0}`;
-    let canvas = this.adjuster.process(
-      image,
-      width,
-      height,
-      base,
-      curves,
-      focus,
-      mask,
-      pixelKey,
-      lut
-    );
+    let canvas = run(source, base);
 
     // A region is a second run of the same pipeline with the region's deltas
     // added, composited back through the mask. Two passes rather than a shader
@@ -511,44 +564,95 @@ export class RenderEngine {
         boosted[name] = Math.min(max, Math.max(min, boosted[name] + value * local.amount));
       }
 
-      const region = this.adjuster.process(
-        image,
-        width,
-        height,
-        boosted,
-        curves,
-        focus,
-        mask,
-        pixelKey,
-        lut
-      );
-      const alpha = this.getMaskAlpha(local.maskDataUrl, localMask, width, height);
+      const region = run(source, boosted);
+      const alpha = this.getMaskAlpha(local.maskDataUrl, localMask, w, h);
 
       if (region && alpha) {
-        canvas =
-          compositeThroughMask(canvas ?? image, region, alpha, width, height) ?? canvas;
+        canvas = compositeThroughMask(canvas ?? source, region, alpha, w, h) ?? canvas;
       }
     }
 
     if (masks.length > 0) {
       const masked = applyMasks(
-        canvas ?? image,
-        width,
-        height,
+        canvas ?? source,
+        w,
+        h,
         masks,
-        (input, values) => this.adjuster.process(input, width, height, values),
-        (m) => this.getMaskCoverage(m, image, pixelKey, width, height)
+        (input, values) =>
+          this.adjuster.process(input, w, h, values, undefined, undefined, undefined, undefined, undefined, scale),
+        (m) => this.getMaskCoverage(m, source, pixelKey, w, h)
       );
-      if (masked !== image) canvas = masked as HTMLCanvasElement;
+      if (masked !== source) canvas = masked as HTMLCanvasElement;
     }
 
     if (!canvas) {
       this.adjusted.delete(cacheId);
-      return null;
+      return scale < 1 ? source : null;
     }
 
-    this.adjusted.set(cacheId, { signature, canvas });
+    this.adjusted.set(cacheId, { settings, scale, canvas });
     return canvas;
+  }
+
+  /** Power-of-two fraction of the photo's size that the screen actually shows. */
+  private displayScale(width: number, height: number): number {
+    const dpr = window.devicePixelRatio || 1;
+    const shown = this.zoom * dpr;
+    if (shown >= 1) return 1;
+    // Never below what a 512-pixel side needs: tiny levels cost nothing anyway.
+    const floor = Math.min(1, 512 / Math.max(width, height));
+    return Math.max(2 ** Math.ceil(Math.log2(Math.max(shown, floor))), 1 / 64);
+  }
+
+  /** Stable number for a decoded image, for cache keys that must not collide. */
+  private imageId(image: HTMLImageElement): number {
+    let id = this.imageIds.get(image);
+    if (id === undefined) {
+      id = ++this.nextImageId;
+      this.imageIds.set(image, id);
+    }
+    return id;
+  }
+
+  /**
+   * The image reduced to `scale`, built by halving: each level is drawn from
+   * the one above it, so the reduction stays sharp and each is made once.
+   */
+  private level(image: HTMLImageElement, scale: number): HTMLImageElement | HTMLCanvasElement {
+    if (scale >= 1) return image;
+    let levels = this.levels.get(image);
+    if (!levels) {
+      levels = [];
+      this.levels.set(image, levels);
+    }
+    const depth = Math.round(Math.log2(1 / scale));
+    let previous: HTMLImageElement | HTMLCanvasElement = levels[levels.length - 1] ?? image;
+    let previousWidth = levels.length ? levels[levels.length - 1].width : image.naturalWidth;
+    let previousHeight = levels.length ? levels[levels.length - 1].height : image.naturalHeight;
+    while (levels.length < depth) {
+      const next = window.document.createElement('canvas');
+      next.width = Math.max(1, Math.ceil(previousWidth / 2));
+      next.height = Math.max(1, Math.ceil(previousHeight / 2));
+      const ctx = next.getContext('2d');
+      if (!ctx) return image;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(previous, 0, 0, next.width, next.height);
+      levels.push(next);
+      previous = next;
+      previousWidth = next.width;
+      previousHeight = next.height;
+    }
+    return levels[depth - 1];
+  }
+
+  /** Asks for one more frame once the settings have stopped moving. */
+  private scheduleSettle(): void {
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.settleTimer = setTimeout(() => {
+      this.settleTimer = null;
+      this.onImageLoaded?.();
+    }, SETTLE_MS + 20);
   }
 
   /** Cached brightness-to-alpha conversion of a mask. */
@@ -573,7 +677,7 @@ export class RenderEngine {
    */
   private getMaskCoverage(
     mask: LocalMask,
-    image: HTMLImageElement,
+    image: CanvasImageSource,
     pixelKey: string,
     width: number,
     height: number
@@ -771,6 +875,7 @@ export class RenderEngine {
 
   /** Checkerboard and layers of one document, in document coordinates. */
   private drawDocument(doc: NabuDocument, zoom: number, namespace = ''): void {
+    this.zoom = zoom;
     this.drawCheckerboard(doc.width, doc.height, zoom);
     paintLayers(
       this.ctx,

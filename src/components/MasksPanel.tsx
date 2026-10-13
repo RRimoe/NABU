@@ -1,6 +1,6 @@
 // src/components/MasksPanel.tsx
 import { Circle, FlipVertical2, Lasso, Sun, Trash2 } from 'lucide-react';
-import { useDocumentStore, useActiveDocument, useSelection } from '../store/documentStore';
+import { useActiveDocument, useSelection, useDocumentFields } from '../store/documentStore';
 import {
   ADJUSTMENT_RANGES,
   MASK_ADJUSTMENTS,
@@ -54,7 +54,15 @@ export const MasksPanel: React.FC = () => {
     editingMaskId,
     setEditingMask,
     setSelection,
-  } = useDocumentStore();
+  } = useDocumentFields(
+    'addMask',
+    'updateMask',
+    'commitMasks',
+    'removeMask',
+    'editingMaskId',
+    'setEditingMask',
+    'setSelection',
+  );
   const t = useT();
 
   const layerId = doc?.activeLayerId ?? null;

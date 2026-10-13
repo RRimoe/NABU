@@ -1,6 +1,6 @@
 // src/components/FocusPanel.tsx
 import { Aperture, Check, Circle, Layers, RectangleHorizontal, RotateCcw, Scan } from 'lucide-react';
-import { useDocumentStore, useActiveDocument, useSelection } from '../store/documentStore';
+import { useDocumentStore, useActiveDocument, useSelection, useDocumentFields } from '../store/documentStore';
 import { useDepthStore } from '../store/depthStore';
 import { focusOnDepth, focusOnSelection } from '../ops/focus';
 import { NEUTRAL_FOCUS, type FocusEffect, type FocusMode } from '../types/document';
@@ -106,7 +106,7 @@ const fromSlider = (key: Slider['key'], value: number): Partial<FocusEffect> => 
 export const FocusPanel: React.FC = () => {
   const doc = useActiveDocument();
   const selection = useSelection();
-  const { setFocus, commitFocus, clearFocus, setFocusEditing, isAIBusy } = useDocumentStore();
+  const { setFocus, commitFocus, clearFocus, setFocusEditing, isAIBusy } = useDocumentFields('setFocus', 'commitFocus', 'clearFocus', 'setFocusEditing', 'isAIBusy');
   const editing = useDocumentStore((s) => s.focusEditing);
   // A depth run that already failed once is not offered again: the model is
   // either installed or it is not, and retrying costs the user another wait.

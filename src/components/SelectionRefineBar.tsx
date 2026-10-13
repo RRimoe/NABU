@@ -1,6 +1,6 @@
 // src/components/SelectionRefineBar.tsx
 import { Check, Undo2, X } from 'lucide-react';
-import { useDocumentStore, useSelection } from '../store/documentStore';
+import { useDocumentStore, useSelection, useDocumentFields } from '../store/documentStore';
 import { useT } from '../i18n';
 import { refineSelection } from '../ai/operations';
 
@@ -27,7 +27,15 @@ export const SelectionRefineBar: React.FC = () => {
     setRefineCut,
     sessions,
     activeId,
-  } = useDocumentStore();
+  } = useDocumentFields(
+    'pointRefine',
+    'setPointRefine',
+    'undoRefinePoint',
+    'clearRefinePoints',
+    'setRefineCut',
+    'sessions',
+    'activeId',
+  );
   const selection = useSelection();
   const t = useT();
 

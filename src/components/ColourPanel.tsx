@@ -1,7 +1,7 @@
 // src/components/ColourPanel.tsx
 import { useRef, useState } from 'react';
 import { FileUp, X } from 'lucide-react';
-import { useDocumentStore, useActiveDocument } from '../store/documentStore';
+import { useActiveDocument, useDocumentFields } from '../store/documentStore';
 import {
   type Adjustments,
   ADJUSTMENT_RANGES,
@@ -42,7 +42,7 @@ const GRADES = [
  */
 export const ColourPanel: React.FC = () => {
   const doc = useActiveDocument();
-  const { setAdjustment, commitAdjustments, setLayerLut } = useDocumentStore();
+  const { setAdjustment, commitAdjustments, setLayerLut } = useDocumentFields('setAdjustment', 'commitAdjustments', 'setLayerLut');
   const [band, setBand] = useState<Band>('Blue');
   const [lutError, setLutError] = useState<string | null>(null);
   const lutInput = useRef<HTMLInputElement>(null);

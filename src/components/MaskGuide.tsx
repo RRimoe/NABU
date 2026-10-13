@@ -1,6 +1,6 @@
 // src/components/MaskGuide.tsx
 import { useEffect, useRef, useState } from 'react';
-import { useDocumentStore, useActiveDocument, useViewport } from '../store/documentStore';
+import { useActiveDocument, useViewport, useDocumentFields } from '../store/documentStore';
 import { layerToDocument } from '../ops/paint';
 import type { LocalMask } from '../types/document';
 
@@ -21,7 +21,7 @@ type Grip = 'start' | 'end' | 'move' | 'rx' | 'ry' | 'centre';
 export const MaskGuide: React.FC<Props> = ({ containerWidth, containerHeight }) => {
   const doc = useActiveDocument();
   const viewport = useViewport();
-  const { updateMask, commitMasks, editingMaskId } = useDocumentStore();
+  const { updateMask, commitMasks, editingMaskId } = useDocumentFields('updateMask', 'commitMasks', 'editingMaskId');
 
   const gripRef = useRef<{ grip: Grip; from: { x: number; y: number }; mask: LocalMask } | null>(
     null
