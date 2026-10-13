@@ -23,6 +23,7 @@ export type SubjectKind = 'person' | 'animal' | 'plant' | 'vehicle' | 'object';
 /** Everything the contextual bar can offer. */
 export type ActionId =
   | 'remove'
+  | 'fill'
   | 'extract'
   | 'blur-behind'
   | 'enhance-subject'
@@ -61,15 +62,15 @@ const KIND_OF: Record<string, SubjectKind> = {
  * the corner it is to get rid of it.
  */
 const ACTIONS: Record<SubjectKind, ActionId[]> = {
-  person: ['enhance-subject', 'blur-behind', 'extract', 'remove', 'copy'],
-  animal: ['enhance-subject', 'blur-behind', 'extract', 'copy', 'remove'],
-  plant: ['recolour', 'blur-behind', 'extract', 'remove', 'copy'],
-  vehicle: ['extract', 'blur-behind', 'remove', 'copy', 'recolour'],
-  object: ['remove', 'extract', 'blur-behind', 'copy', 'crop-here'],
+  person: ['enhance-subject', 'blur-behind', 'extract', 'remove', 'fill', 'copy'],
+  animal: ['enhance-subject', 'blur-behind', 'extract', 'copy', 'remove', 'fill'],
+  plant: ['recolour', 'blur-behind', 'extract', 'remove', 'fill', 'copy'],
+  vehicle: ['extract', 'blur-behind', 'remove', 'fill', 'copy', 'recolour'],
+  object: ['remove', 'fill', 'extract', 'blur-behind', 'copy', 'crop-here'],
 };
 
 /** What is offered when nothing has been recognised under the selection. */
-const UNKNOWN_ACTIONS: ActionId[] = ['remove', 'extract', 'blur-behind', 'copy', 'crop-here'];
+const UNKNOWN_ACTIONS: ActionId[] = ['remove', 'fill', 'extract', 'blur-behind', 'copy', 'crop-here'];
 
 export function kindOf(className: string): SubjectKind {
   return KIND_OF[className.toLowerCase()] ?? 'object';

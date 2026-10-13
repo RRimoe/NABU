@@ -594,6 +594,7 @@ export type ToolType =
   | 'transform'
   | 'brush'
   | 'eraser'
+  | 'heal'
   | 'ai-lasso'
   | 'ai-inpaint'
   | 'crop'

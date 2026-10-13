@@ -38,6 +38,7 @@ export const BrushBar: React.FC<Props> = ({ onDone }) => {
   const t = useT();
 
   const erasing = activeTool === 'eraser';
+  const healing = activeTool === 'heal';
   const layer = doc?.activeLayerId ? doc.layers[doc.activeLayerId] : undefined;
 
   return (
@@ -46,7 +47,7 @@ export const BrushBar: React.FC<Props> = ({ onDone }) => {
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
     >
-      <span className="transform-readout">{t(erasing ? 'brush.eraser' : 'brush.brush')}</span>
+      <span className="transform-readout">{t(healing ? 'brush.heal' : erasing ? 'brush.eraser' : 'brush.brush')}</span>
 
       <span className="transform-sep" />
 
@@ -62,19 +63,23 @@ export const BrushBar: React.FC<Props> = ({ onDone }) => {
         <b>{brushSize}</b>
       </label>
 
-      <label className="brush-field">
-        <span>{t('brush.opacity')}</span>
-        <input
-          type="range"
-          min={5}
-          max={100}
-          value={Math.round(brushOpacity * 100)}
-          onChange={(e) => setBrushOpacity(Number(e.target.value) / 100)}
-        />
-        <b>{Math.round(brushOpacity * 100)}</b>
-      </label>
+      {healing ? (
+        <span className="transform-readout dim">{t('brush.heal.howto')}</span>
+      ) : (
+        <label className="brush-field">
+          <span>{t('brush.opacity')}</span>
+          <input
+            type="range"
+            min={5}
+            max={100}
+            value={Math.round(brushOpacity * 100)}
+            onChange={(e) => setBrushOpacity(Number(e.target.value) / 100)}
+          />
+          <b>{Math.round(brushOpacity * 100)}</b>
+        </label>
+      )}
 
-      {!erasing && (
+      {!erasing && !healing && (
         <label className="brush-colour" title={t('brush.colour')}>
           <input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} />
         </label>

@@ -1,0 +1,18 @@
+[package]
+name = "nabu-retouch"
+version = "0.1.0"
+description = "Retouching for Nabu without models: content-aware fill and healing by patch-based synthesis."
+authors = ["Nabu contributors", "ArtCraft Team and the PhotoCraft contributors"]
+license = "MIT"
+edition = "2024"
+
+# The patch-based fill comes from PhotoCraft (MIT OR Apache-2.0); see NOTICE.
+[dependencies]
+rayon = "1.10"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+[profile.test]
+opt-level = 3
+
+[profile.dev]
+opt-level = 2

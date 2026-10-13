@@ -167,7 +167,7 @@ npm run dev           # interface only, in a browser (no models)
 
 Building: `npm run build:llm`. Tests: `cargo test --all-targets` in
 `src-tauri/`, `cargo test` in `crates/nabu-cli`, `cargo test --release` in
-`crates/nabu-stitch`, `npm run check:locales` for translation coverage and
+`crates/nabu-stitch` and `crates/nabu-retouch`, `npm run check:locales` for translation coverage and
 `npm run check:commands` to keep the language model's tools and the command
 registry in step.
 
@@ -202,6 +202,9 @@ registry in step.
       length and distortion), alignment refined on the full-resolution
       pixels, flat, cylindrical or spherical projection, exposure matching,
       graph-cut seams and multi-band blending (`crates/nabu-stitch`)
+- [x] Content-aware fill and a healing brush (J), with no model to
+      download: PatchMatch synthesis with colour adaptation, ported from
+      PhotoCraft (MIT/Apache-2.0, `crates/nabu-retouch`, see its NOTICE)
 - [x] One command registry for everything: the command bar, the local
       language model, the `nabu` command line and AI agents over MCP run the
       same commands on the same pipeline

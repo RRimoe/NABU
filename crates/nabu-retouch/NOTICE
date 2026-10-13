@@ -1,0 +1,15 @@
+nabu-retouch
+
+The files src/inpaint.rs, src/inpaint/proximity_integral.rs and its tests,
+src/content_aware.rs, src/poisson.rs, src/par.rs and src/interrupt.rs are taken
+from PhotoCraft (https://github.com/storytold/photocraft, v0.8.2):
+
+  Copyright (c) 2026 ArtCraft Team and the PhotoCraft contributors.
+  Licensed under the MIT License or the Apache License, Version 2.0, at your
+  option (LICENSE-PHOTOCRAFT-MIT, LICENSE-PHOTOCRAFT-APACHE).
+
+Changes for Nabu: crate paths, a local Rect, unused helpers dropped, and the
+removal of the automatic sampling area of content_aware.rs, which depends on
+PhotoCraft's segmentation. src/heal.rs, src/lib.rs and the tests are Nabu's.
+The ArtCraft and PhotoCraft names and logos are trademarks of the ArtCraft Team
+and are not used here.

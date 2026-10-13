@@ -27,6 +27,7 @@ import { PasteChip } from './PasteChip';
 import { TransformBar } from './TransformBar';
 import { BrushBar } from './BrushBar';
 import { canPaint, paintStroke } from '../ops/paint';
+import { healStroke } from '../ops/heal';
 import { useT } from '../i18n';
 
 /** Minimum distance between two lasso points, in document pixels. */
@@ -147,7 +148,7 @@ export const CanvasViewport: React.FC = () => {
 
   const transforming = activeTool === 'transform';
   const cropping = activeTool === 'crop';
-  const painting = (activeTool === 'brush' || activeTool === 'eraser') && !refineMode;
+  const painting = (activeTool === 'brush' || activeTool === 'eraser' || activeTool === 'heal') && !refineMode;
 
   /**
    * What the comparison shows this frame. A split needs both pictures to be the
@@ -838,7 +839,9 @@ export const CanvasViewport: React.FC = () => {
     const layerId = current.activeLayerId;
     const layer = layerId ? current.layers[layerId] : undefined;
     try {
-      if (layerId && canPaint(layer)) {
+      if (activeTool === 'heal') {
+        await healStroke(stroke, brushSize, selection?.path);
+      } else if (layerId && canPaint(layer)) {
         const painted = await paintStroke(layer, current, stroke, {
           mode: activeTool === 'eraser' ? 'erase' : 'paint',
           size: brushSize,
@@ -934,8 +937,8 @@ export const CanvasViewport: React.FC = () => {
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth={Math.max(1, brushSize * viewport.zoom)}
-              stroke={activeTool === 'eraser' ? 'rgba(255, 255, 255, 0.55)' : brushColor}
-              strokeOpacity={activeTool === 'eraser' ? 1 : brushOpacity}
+              stroke={activeTool === 'brush' ? brushColor : 'rgba(255, 255, 255, 0.55)'}
+              strokeOpacity={activeTool === 'brush' ? brushOpacity : 1}
             />
           )}
           {brushAt && (

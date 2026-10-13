@@ -4,6 +4,7 @@
 pub mod ai;
 pub mod bridge;
 pub mod panorama;
+pub mod retouch;
 
 use std::sync::Arc;
 
@@ -740,6 +741,7 @@ pub fn run() {
             app.manage(Arc::new(DownloadManager::default()));
             app.manage(Arc::new(SessionCache::default()));
             app.manage(Arc::new(panorama::PanoramaState::default()));
+            app.manage(Arc::new(retouch::RetouchState::default()));
 
             let editor = Arc::new(bridge::EditorBridge::new(app.handle().clone()));
             app.manage(editor.clone());
@@ -784,6 +786,8 @@ pub fn run() {
             process_ai_task,
             panorama::stitch_panorama,
             panorama::cancel_panorama,
+            retouch::heal_region,
+            retouch::cancel_heal,
             bridge::bridge_ready,
             bridge::command_result,
             bridge::read_file,

@@ -1,5 +1,6 @@
 // src/components/LeftRail.tsx
 import {
+  Bandage,
   Brush,
   Crop,
   Eraser,
@@ -70,6 +71,7 @@ export const LeftRail: React.FC<Props> = ({ hasPhoto }) => {
             a mode the canvas is in needs somewhere to be turned on. */}
         {tool('transform', Move, 'rail.transform')}
         {tool('crop', Crop, 'rail.crop')}
+        {tool('heal', Bandage, 'rail.heal')}
         {tool('brush', Brush, 'rail.brush')}
         {tool('eraser', Eraser, 'rail.eraser')}
         {panel('adjust', SlidersHorizontal, 'rail.adjust')}

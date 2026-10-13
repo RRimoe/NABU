@@ -19,6 +19,7 @@ import { loadImage, renderDocument, RENDER_THEMES } from '../engine/RenderEngine
 import { removeBackground, upscale, extractObject, removeObjectByBbox, removeSelectedRegion } from '../ai/operations';
 import { resizeByPercent, resizeLongestSide, resizeDocument } from '../ops/resize';
 import { cropDocument } from '../ops/crop';
+import { contentAwareFill, healActive, pathShape, strokeShape } from '../ops/heal';
 import { activeDevelop } from '../ops/develop';
 import { encodeCanvas, EXPORT_FORMATS, type ExportFormat } from '../ops/export';
 import { serializeProject, parseProject, PROJECT_EXTENSION } from '../ops/project';
@@ -592,6 +593,66 @@ register(
     run: async () => {
       await removeSelectedRegion();
       return { messageKey: 'router.removedSelection', handled: true };
+    },
+  },
+  {
+    name: 'content_aware_fill',
+    description:
+      'Rebuild an area from the rest of the photo, without any model: the current selection, or the rectangle given (document pixels). Best for texture such as walls, grass, sky or skin.',
+    params: {
+      x: { type: 'number', description: 'Left edge of the rectangle; omit to fill the selection.' },
+      y: { type: 'number', description: 'Top edge of the rectangle.' },
+      width: { type: 'number', description: 'Rectangle width.', minimum: 1 },
+      height: { type: 'number', description: 'Rectangle height.', minimum: 1 },
+    },
+    run: async (args) => {
+      if (args.x === undefined) {
+        const filled = await contentAwareFill();
+        return { messageKey: filled ? 'commands.healed' : 'router.done', handled: filled };
+      }
+      const [x, y] = [Number(args.x), Number(args.y ?? 0)];
+      const [w, h] = [Number(args.width ?? 1), Number(args.height ?? 1)];
+      const rect = [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
+      const filled = await healActive(() => pathShape(rect), 'activity.contentAwareFill');
+      return { messageKey: filled ? 'commands.healed' : 'router.done', handled: filled };
+    },
+  },
+  {
+    name: 'heal_spots',
+    description:
+      'Make small things disappear (dust, blemishes, a bird in the sky) by healing round spots, each rebuilt from what surrounds it. Coordinates in document pixels.',
+    params: {
+      spots: {
+        type: 'array',
+        items: { type: 'object' },
+        description: 'Spots as {"x": number, "y": number, "radius": number}.',
+        required: true,
+      },
+    },
+    run: async (args) => {
+      const spots = (args.spots as Array<{ x: number; y: number; radius?: number }>).filter(
+        (s) => s && Number.isFinite(Number(s.x)) && Number.isFinite(Number(s.y))
+      );
+      if (spots.length === 0) return { messageKey: 'backend.retouchEmpty', handled: false };
+      // One stroke per spot, drawn as one mask: the fill takes each spot from
+      // its own neighbourhood anyway.
+      const shapes = spots.map((s) =>
+        strokeShape([{ x: Number(s.x), y: Number(s.y) }], 2 * Math.max(1, Number(s.radius ?? 8)))
+      );
+      const bounds = {
+        x0: Math.min(...shapes.map((s) => s.bounds.x0)),
+        y0: Math.min(...shapes.map((s) => s.bounds.y0)),
+        x1: Math.max(...shapes.map((s) => s.bounds.x1)),
+        y1: Math.max(...shapes.map((s) => s.bounds.y1)),
+      };
+      const draw = (ctx: CanvasRenderingContext2D) =>
+        shapes.forEach((shape) => {
+          ctx.save();
+          shape.draw(ctx);
+          ctx.restore();
+        });
+      const filled = await healActive(() => ({ bounds, draw }), 'activity.heal');
+      return { messageKey: filled ? 'commands.healed' : 'router.done', handled: filled };
     },
   },
   {

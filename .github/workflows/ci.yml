@@ -40,6 +40,7 @@ jobs:
           workspaces: |
             src-tauri
             crates/nabu-stitch
+            crates/nabu-retouch
             crates/nabu-cli
       # Tauri embeds the built interface, so the folder it points at must exist.
       - run: mkdir -p dist
@@ -50,6 +51,9 @@ jobs:
       # The stitcher's own tests: precision against rendered ground truth.
       - run: cargo test --release
         working-directory: crates/nabu-stitch
+      # Content-aware fill and healing (ported from PhotoCraft).
+      - run: cargo test --release
+        working-directory: crates/nabu-retouch
       # The command line, the MCP server and the bridge, against a fake editor.
       - run: cargo test
         working-directory: crates/nabu-cli

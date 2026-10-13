@@ -229,6 +229,7 @@ function App() {
           c: () => setActiveTool('crop'),
           b: () => setActiveTool(activeTool === 'brush' ? 'select' : 'brush'),
           e: () => setActiveTool(activeTool === 'eraser' ? 'select' : 'eraser'),
+          j: () => setActiveTool(activeTool === 'heal' ? 'select' : 'heal'),
           // Brackets resize the brush, the convention every painting tool shares.
           '[': () => setBrushSize(Math.round(brushSize * 0.8)),
           ']': () => setBrushSize(Math.max(brushSize + 1, Math.round(brushSize * 1.25))),

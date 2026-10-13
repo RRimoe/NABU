@@ -156,6 +156,18 @@ pub fn panorama_failed(cause: impl ToString) -> NabuError {
     NabuError::new("backend.panoramaFailed").detail(cause)
 }
 
+pub fn retouch_failed(cause: impl ToString) -> NabuError {
+    NabuError::new("backend.retouchFailed").detail(cause)
+}
+
+pub fn retouch_empty() -> NabuError {
+    NabuError::new("backend.retouchEmpty")
+}
+
+pub fn retouch_nothing_to_sample() -> NabuError {
+    NabuError::new("backend.retouchNothingToSample")
+}
+
 pub fn cancelled() -> NabuError {
     NabuError::new("backend.cancelled")
 }

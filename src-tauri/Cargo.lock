@@ -3885,6 +3885,7 @@ dependencies = [
  "image",
  "mistralrs",
  "nabu-cli",
+ "nabu-retouch",
  "nabu-stitch",
  "ort",
  "reqwest 0.12.28",
@@ -3907,6 +3908,14 @@ dependencies = [
  "nabu-stitch",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "nabu-retouch"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "rayon",
 ]
 
 [[package]]

@@ -46,6 +46,8 @@ image = "0.25"
 # Panorama stitching lives in its own crate so it builds and tests without
 # the application around it.
 nabu-stitch = { path = "../crates/nabu-stitch" }
+# Content-aware fill and healing, without models.
+nabu-retouch = { path = "../crates/nabu-retouch" }
 # The command line, the MCP server and the local bridge they talk to.
 nabu-cli = { path = "../crates/nabu-cli" }
 
