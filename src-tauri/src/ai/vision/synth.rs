@@ -539,6 +539,11 @@ pub fn apply_detail(
     let image_low = blur(image, DETAIL_RADIUS);
     let guide_low = blur(guide, DETAIL_RADIUS);
     let mask_raw = mask.as_raw();
+    // Where the photograph's detail is not its own: inside the hole, and close
+    // enough to it that the blur the detail is measured against reaches the
+    // object being removed. Detail taken from there is the outline of that
+    // object, and it comes back as a thin bright line along the repair.
+    let tainted = super::inpaint::dilate(mask, DETAIL_RADIUS + 1);
 
     let mut out = guide.clone();
     for y in 0..h {
@@ -549,6 +554,11 @@ pub fn apply_detail(
             }
 
             let (sx, sy) = field.lookup(x, y, w, h);
+            if tainted.get_pixel(sx, sy)[0] > 0 {
+                // No detail rather than the wrong detail: the network's own
+                // smooth answer, at the level it put there.
+                continue;
+            }
             let source = image.get_pixel(sx, sy);
             let source_low = image_low.get_pixel(sx, sy);
             let target_low = guide_low.get_pixel(x, y);

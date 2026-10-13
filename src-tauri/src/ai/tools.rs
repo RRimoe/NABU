@@ -64,11 +64,6 @@ pub const TOOLS: &[ToolSpec] = &[
         params: &[],
     },
     ToolSpec {
-        name: "content_aware_fill",
-        description: "Fill the user's current selection from the surrounding texture, with no model. Only valid when a selection exists. Use when the user asks to fill, patch, heal or cover the selected area, or to remove a stain, spot, wire or blemish they selected.",
-        params: &[],
-    },
-    ToolSpec {
         name: "select_object",
         description: "Select one object from the SCENE list by its id number. Use when the user points at a thing in the photo — the person, the red car, the dog on the left. Pick the id whose class, colour and position best match the request. Only valid when the context contains a SCENE list.",
         params: &[ToolParam {

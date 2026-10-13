@@ -20,7 +20,7 @@ import { removeBackground, upscale, extractObject, removeObjectByBbox, removeSel
 import { resizeByPercent, resizeLongestSide, resizeDocument } from '../ops/resize';
 import { cropDocument } from '../ops/crop';
 import { heicToDataUrl, isHeicName } from '../ops/heic';
-import { contentAwareFill, healActive, pathShape, strokeShape } from '../ops/heal';
+import { healActive, strokeShape } from '../ops/heal';
 import { activeDevelop } from '../ops/develop';
 import { encodeCanvas, EXPORT_FORMATS, type ExportFormat } from '../ops/export';
 import { serializeProject, parseProject, PROJECT_EXTENSION } from '../ops/project';
@@ -596,28 +596,6 @@ register(
     run: async () => {
       await removeSelectedRegion();
       return { messageKey: 'router.removedSelection', handled: true };
-    },
-  },
-  {
-    name: 'content_aware_fill',
-    description:
-      'Rebuild an area from the rest of the photo, without any model: the current selection, or the rectangle given (document pixels). Best for texture such as walls, grass, sky or skin.',
-    params: {
-      x: { type: 'number', description: 'Left edge of the rectangle; omit to fill the selection.' },
-      y: { type: 'number', description: 'Top edge of the rectangle.' },
-      width: { type: 'number', description: 'Rectangle width.', minimum: 1 },
-      height: { type: 'number', description: 'Rectangle height.', minimum: 1 },
-    },
-    run: async (args) => {
-      if (args.x === undefined) {
-        const filled = await contentAwareFill();
-        return { messageKey: filled ? 'commands.healed' : 'router.done', handled: filled };
-      }
-      const [x, y] = [Number(args.x), Number(args.y ?? 0)];
-      const [w, h] = [Number(args.width ?? 1), Number(args.height ?? 1)];
-      const rect = [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
-      const filled = await healActive(() => pathShape(rect), 'activity.contentAwareFill');
-      return { messageKey: filled ? 'commands.healed' : 'router.done', handled: filled };
     },
   },
   {

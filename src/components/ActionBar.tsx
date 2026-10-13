@@ -1,7 +1,6 @@
 // src/components/ActionBar.tsx
 import {
   Aperture,
-  Bandage,
   Brush,
   ClipboardCopy,
   Crop,
@@ -17,7 +16,7 @@ import { useSceneStore } from '../store/sceneStore';
 import { extractObject, removeSelectedRegion } from '../ai/operations';
 import { actionsFor, classLabelOf, objectUnderSelection, type ActionId } from '../ai/semantics';
 import { cropDocument } from '../ops/crop';
-import { contentAwareFill, retouchAvailable } from '../ops/heal';
+import { retouchAvailable } from '../ops/heal';
 import { copySelection } from '../ops/clipboard';
 import { focusOnSelection } from '../ops/focus';
 import { enhanceSubject, recolourSelection } from '../ops/local';
@@ -82,17 +81,9 @@ export const ActionBar: React.FC = () => {
       labelKey: 'bubble.remove',
       hintKey: 'bubble.remove.hint',
       run: () => void removeSelectedRegion(),
-      available: canInpaint,
-    },
-    // Rebuilt from the photo itself, so it needs no model: the right tool for
-    // texture (a wall, grass, sky, skin) and the stand-in for "remove" when
-    // the inpainting model is not installed.
-    fill: {
-      Icon: Bandage,
-      labelKey: 'action.fill',
-      hintKey: 'action.fill.hint',
-      run: () => void contentAwareFill(),
-      available: retouchAvailable(),
+      // With the models it is the network and the patch fill together; without
+      // them the patch fill alone, which needs nothing installed.
+      available: canInpaint || retouchAvailable(),
     },
     extract: {
       Icon: Scissors,

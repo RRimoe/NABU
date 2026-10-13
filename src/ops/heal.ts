@@ -252,19 +252,6 @@ export async function healActive(shapeOf: () => MaskShape | null, titleKey: stri
   }
 }
 
-/** Fills the current selection from its surroundings. */
-export async function contentAwareFill(): Promise<boolean> {
-  const state = useDocumentStore.getState();
-  const selection = state.sessions[state.activeId]?.selection;
-  if (!selection || selection.path.length < 3) {
-    report(t('error.noSelection'));
-    return false;
-  }
-  const done = await healActive(() => pathShape(selection.path), 'activity.contentAwareFill');
-  if (done) useDocumentStore.getState().setSelection(null);
-  return done;
-}
-
 /** One stroke of the healing brush, in document coordinates. */
 export function healStroke(stroke: Point2D[], size: number, clip?: Point2D[] | null): Promise<boolean> {
   if (stroke.length === 0) return Promise.resolve(false);

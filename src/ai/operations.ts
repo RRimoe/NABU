@@ -14,6 +14,7 @@ import { t } from '../i18n';
 import { describeError } from '../i18n/backendError';
 import { cropDocument } from '../ops/crop';
 import { outlineOf } from '../ops/mask';
+import { healActive, pathShape, retouchAvailable } from '../ops/heal';
 import { refineCutout } from '../engine/matte';
 import { loadImage } from '../engine/RenderEngine';
 import type { Intent } from './intents';
@@ -471,6 +472,16 @@ export async function removeSelectedRegion(): Promise<void> {
   }
   if (!selection) {
     report(t('error.noSelection'));
+    return;
+  }
+
+  // Without the models the patch fill does the whole job on the drawn shape:
+  // less able on a big hole, but it needs nothing installed.
+  const models = useModelStore.getState();
+  if (!(models.readyFor('inpainting') && models.readyFor('segmentation')) && retouchAvailable()) {
+    const path = selection.path;
+    const done = await healActive(() => pathShape(path), 'activity.removeObject');
+    if (done) useDocumentStore.getState().setSelection(null);
     return;
   }
 

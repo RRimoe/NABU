@@ -348,6 +348,11 @@ pub fn remove_region(
     // Last, the levels. Everything above decided *what* goes in the hole; this
     // decides that it meets the photograph without a step.
     progress(94, "levels");
+    #[cfg(test)]
+    if let Ok(dir) = std::env::var("NABU_STAGES") {
+        let _ = filled.save(std::path::Path::new(&dir).join("s_prelevel.png"));
+        let _ = grown.save(std::path::Path::new(&dir).join("s_grown.png"));
+    }
     let filled = level_match(&cropped, &filled, &grown);
 
     // Feathering happens where the picture is, too. A band measured on the
@@ -436,7 +441,10 @@ fn put_detail(
         let detail = (0..3).map(|c| (p[c] as f32 - q[c] as f32).abs()).sum::<f32>() / 3.0;
         texture.put_pixel(x, y, image::Luma([(detail * 16.0).round().min(255.0) as u8]));
     }
-    let disagreement = image::imageops::blur(&disagreement, radius as f32 * 1.5);
+    // Spread before smoothing: a region the fill got badly wrong distrusts
+    // its surroundings too, because the edge of a wrong patch is itself
+    // strong, wrong detail.
+    let disagreement = image::imageops::blur(&dilate(&disagreement, radius), radius as f32);
     let texture = image::imageops::blur(&texture, radius as f32 * 1.5);
     let mut trust = GrayImage::new(w, h);
     for (x, y, d) in disagreement.enumerate_pixels() {
@@ -445,15 +453,38 @@ fn put_detail(
         trust.put_pixel(x, y, image::Luma([(agrees * textured * 255.0).round() as u8]));
     }
 
-    let mut out = steady;
+    #[cfg(test)]
+    if let Ok(dir) = std::env::var("NABU_STAGES") {
+        let dir = std::path::Path::new(&dir);
+        let _ = guide.save(dir.join("s_guide.png"));
+        let _ = sharp.save(dir.join("s_sharp.png"));
+        let _ = steady.save(dir.join("s_steady.png"));
+        let _ = trust.save(dir.join("s_trust.png"));
+        let _ = cropped.save(dir.join("s_crop.png"));
+    }
+    // The fill only ever contributes detail. Its low frequencies are thrown
+    // away and the transfer's (which are the network's) kept everywhere, so
+    // whatever the patches drifted to, the hole keeps the layout the network
+    // drew: a fill that wandered off to copy dark ground into a pavement can
+    // at worst add the wrong grain, never a dark block.
+    let low_steady = super::synth::blur(&steady, radius);
+    let mut out = steady.clone();
     for (x, y, m) in grown.enumerate_pixels() {
         if m[0] == 0 {
             continue;
         }
-        let t = trust.get_pixel(x, y)[0] as u16;
-        let (a, b) = (sharp.get_pixel(x, y), out.get_pixel_mut(x, y));
+        let t = trust.get_pixel(x, y)[0] as f32 / 255.0;
+        if t == 0.0 {
+            continue;
+        }
+        let (a, la) = (sharp.get_pixel(x, y), low_sharp.get_pixel(x, y));
+        let (b, lb) = (steady.get_pixel(x, y), low_steady.get_pixel(x, y));
+        let px = out.get_pixel_mut(x, y);
         for c in 0..3 {
-            b[c] = ((a[c] as u16 * t + b[c] as u16 * (255 - t)) / 255) as u8;
+            let sharp_detail = a[c] as f32 - la[c] as f32;
+            let steady_detail = b[c] as f32 - lb[c] as f32;
+            let detail = steady_detail + t * (sharp_detail - steady_detail);
+            px[c] = (lb[c] as f32 + detail).round().clamp(0.0, 255.0) as u8;
         }
     }
     out
@@ -588,8 +619,14 @@ fn level_match(source: &RgbaImage, filled: &RgbaImage, hole: &GrayImage) -> Rgba
                 .filter(|&j| !inside[j])
                 .collect();
 
-            if known.is_empty() {
-                // Deeper in: solved for, not measured.
+            if known.is_empty() || on_an_edge(&coarse_source, &coarse_hole, x, y) {
+                // Deeper in: solved for, not measured. So is a rim cell where
+                // the photograph has a strong edge (a railing, the edge of a
+                // kerb): a coarse cell there averages both sides of the edge,
+                // the network's edge never falls exactly on the photograph's,
+                // and the "mismatch" measured is the edge itself, which the
+                // membrane would then smear into the hole as a dark or bright
+                // bruise.
                 fixed[i] = false;
                 continue;
             }
@@ -678,6 +715,29 @@ fn level_match(source: &RgbaImage, filled: &RgbaImage, hole: &GrayImage) -> Rgba
     }
 
     out
+}
+
+/// Spread of brightness in the photograph's known cells around `(x, y)`,
+/// above which a coarse rim cell is said to sit on an edge.
+const EDGE_SPREAD: f32 = 40.0;
+
+/// Whether the known photograph around the coarse cell `(x, y)` has a strong
+/// edge in it.
+fn on_an_edge(source: &RgbaImage, hole: &GrayImage, x: u32, y: u32) -> bool {
+    let (w, h) = source.dimensions();
+    let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+    for ny in y.saturating_sub(2)..(y + 3).min(h) {
+        for nx in x.saturating_sub(2)..(x + 3).min(w) {
+            if hole.get_pixel(nx, ny)[0] > 0 {
+                continue;
+            }
+            let p = source.get_pixel(nx, ny);
+            let level = 0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32;
+            lo = lo.min(level);
+            hi = hi.max(level);
+        }
+    }
+    hi - lo > EDGE_SPREAD
 }
 
 /// The tensor names this family uses, carried together to keep the signatures
@@ -1140,6 +1200,28 @@ mod tests {
     /// stood in for by the true background seen at the network's resolution.
     /// `NABU_DETAIL_DIR` holds photo.png (object pasted in), mask.png and
     /// truth.png; old.png and new.png are written next to them.
+    /// The whole removal with a real inpainter: `NABU_LAMA` is the model file,
+    /// `NABU_REMOVE_DIR` holds photo.png and mask.png; out.png is written there.
+    #[test]
+    #[ignore]
+    fn remove_with_real_model() {
+        let (Ok(model), Ok(dir)) = (std::env::var("NABU_LAMA"), std::env::var("NABU_REMOVE_DIR")) else { return };
+        let dir = std::path::Path::new(&dir);
+        let manifest = ModelManifest::parse(include_str!("../../../manifests/lama-inpainting.json")).unwrap();
+        let mut session = crate::ai::engine::build_session(&std::path::PathBuf::from(model), true).unwrap();
+        let photo = image::open(dir.join("photo.png")).unwrap().to_rgba8();
+        let mut mask = image::open(dir.join("mask.png")).unwrap().to_luma8();
+        if std::env::var("NABU_SHADOW").is_ok() {
+            mask = super::super::shadow::with_shadow(&photo, &mask);
+            mask.save(dir.join("shadowmask.png")).unwrap();
+        }
+        let none = |_: u32, _: &str| {};
+        let start = std::time::Instant::now();
+        let out = remove_region(&mut session, &manifest, &photo, &mask, &none).unwrap();
+        eprintln!("removed in {:?}", start.elapsed());
+        out.save(dir.join("out.png")).unwrap();
+    }
+
     #[test]
     #[ignore]
     fn compare_detail_stages() {
