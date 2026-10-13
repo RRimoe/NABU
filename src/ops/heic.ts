@@ -17,3 +17,15 @@ export async function heicToDataUrl(bytes: Uint8Array | ArrayBuffer): Promise<st
   const png = await invoke<ArrayBuffer>('decode_heic', bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
   return blobToDataUrl(new Blob([png], { type: 'image/png' }));
 }
+
+/**
+ * A small preview of a HEIC file, as an object URL (revoke it when done).
+ * Desktop app only.
+ */
+export async function heicThumbnailUrl(file: Blob, side = 256): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const png = await invoke<ArrayBuffer>('decode_heic', bytes, {
+    headers: { 'x-nabu-max-side': String(side) },
+  });
+  return URL.createObjectURL(new Blob([png], { type: 'image/png' }));
+}

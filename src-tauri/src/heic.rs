@@ -45,21 +45,56 @@ fn to_png(image: &RgbaImage) -> NabuResult<Vec<u8>> {
     Ok(out)
 }
 
-/// The file's bytes in, a PNG out.
+/// The photo shrunk to fit inside `side` × `side`, or as it is when it
+/// already does.
+fn fit(image: RgbaImage, side: u32) -> RgbaImage {
+    let (w, h) = image.dimensions();
+    if w.max(h) <= side {
+        return image;
+    }
+    let scale = side as f64 / w.max(h) as f64;
+    let (tw, th) = (((w as f64 * scale).round() as u32).max(1), ((h as f64 * scale).round() as u32).max(1));
+    image::imageops::resize(&image, tw, th, image::imageops::FilterType::Triangle)
+}
+
+/// The file's bytes in, a PNG out. With an `x-nabu-max-side` header the PNG
+/// is a thumbnail of at most that side, which is all a list of photos needs.
 #[tauri::command]
 pub async fn decode_heic(request: Request<'_>) -> Result<Response, NabuError> {
     let InvokeBody::Raw(body) = request.body() else {
         return Err(error::undecodable_image("expected a binary message"));
     };
     let body = body.clone();
-    tauri::async_runtime::spawn_blocking(move || Ok(Response::new(to_png(&decode(&body)?)?)))
-        .await
-        .map_err(error::unknown)?
+    let max_side = request
+        .headers()
+        .get("x-nabu-max-side")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|&side| side > 0);
+    tauri::async_runtime::spawn_blocking(move || {
+        let image = decode(&body)?;
+        let image = match max_side {
+            Some(side) => fit(image, side),
+            None => image,
+        };
+        Ok(Response::new(to_png(&image)?))
+    })
+    .await
+    .map_err(error::unknown)?
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_thumbnail_fits_inside_the_side_and_keeps_the_shape() {
+        let small = fit(RgbaImage::new(4032, 3024), 256);
+        assert_eq!(small.dimensions(), (256, 192));
+        let tall = fit(RgbaImage::new(3024, 4032), 256);
+        assert_eq!(tall.dimensions(), (192, 256));
+        assert_eq!(fit(RgbaImage::new(100, 50), 256).dimensions(), (100, 50));
+    }
 
     #[test]
     fn recognises_heif_brands_only() {

@@ -16,6 +16,8 @@ export interface PanoramaOptions {
   crop: boolean;
   /** Largest output in megapixels; bigger panoramas are scaled down. */
   maxMegapixels: number;
+  /** The photos are in shooting order: match each with its neighbours. */
+  inOrder?: boolean;
 }
 
 export const DEFAULT_PANORAMA: PanoramaOptions = {
