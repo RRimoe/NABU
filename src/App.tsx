@@ -1,6 +1,6 @@
 // src/App.tsx
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { listen } from './platform';
 import { TopBar } from './components/TopBar';
 import { LeftRail } from './components/LeftRail';
 import { CanvasViewport } from './components/CanvasViewport';

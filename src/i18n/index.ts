@@ -14,7 +14,7 @@
 // so a partial translation degrades gracefully instead of showing blanks.
 
 import { create } from 'zustand';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../platform';
 
 export interface LanguageMeta {
   code: string;

@@ -9,8 +9,7 @@
 // Pixels go as raw bytes, the crop followed by one mask byte per pixel, and
 // come back the same way.
 
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { invoke, listen } from '../platform';
 import { BACKGROUND_LAYER_ID, LayerNode, NabuDocument, Point2D } from '../types/document';
 import { useDocumentStore } from '../store/documentStore';
 import { useActivityStore } from '../store/activityStore';

@@ -7,7 +7,7 @@
 // phrasing in any language. When it is not, the keyword matcher in `intents.ts`
 // takes over: it understands far less, but it costs nothing and always answers.
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../platform';
 import { useDocumentStore } from '../store/documentStore';
 import { useActivityStore } from '../store/activityStore';
 import { useSceneStore } from '../store/sceneStore';

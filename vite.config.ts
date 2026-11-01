@@ -8,6 +8,11 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react()],
 
+  // Where the web version is served from: "/" by default, "/NABU/" on GitHub
+  // Pages. Tauri loads the files from inside the app and ignores it.
+  // @ts-expect-error process is a nodejs global
+  base: process.env.NABU_BASE || "/",
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

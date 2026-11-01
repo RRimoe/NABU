@@ -5,8 +5,7 @@
 // small JSON header followed by a PNG: camera files are large, and base64
 // inside JSON would add a third to them and copy them several times.
 
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { invoke, listen } from '../platform';
 
 export type PanoramaProjection = 'auto' | 'rectilinear' | 'cylindrical' | 'spherical' | 'planar';
 

@@ -4,10 +4,9 @@
 // call. The webview cannot touch the disk itself; the backend does it and the
 // bytes cross the bridge raw, without a base64 detour.
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, isDesktop } from '../platform';
 
-export const desktopAvailable = () =>
-  typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+export const desktopAvailable = isDesktop;
 
 export async function readFile(path: string): Promise<Uint8Array> {
   const buffer = await invoke<ArrayBuffer>('read_file', { path });

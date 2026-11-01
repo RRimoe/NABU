@@ -14,7 +14,7 @@
 // the model wrote itself ever reaches the pixels.
 
 import { create } from 'zustand';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../platform';
 import { useDocumentStore } from './documentStore';
 import { useSceneStore } from './sceneStore';
 import { isRecipeId, type RecipeId } from '../ai/recipes';

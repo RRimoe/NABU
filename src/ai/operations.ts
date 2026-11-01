@@ -5,7 +5,7 @@
 // The crop -> inference -> recomposition sequence lives here in one place, so
 // the contextual bubble and the command line run exactly the same steps.
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../platform';
 import { useDocumentStore } from '../store/documentStore';
 import { useModelStore } from '../store/modelStore';
 import { useActivityStore } from '../store/activityStore';

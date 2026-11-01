@@ -8,7 +8,7 @@
 // differed slightly between them would show up as a visible seam the moment two
 // were used together.
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../platform';
 import { useDocumentStore } from '../store/documentStore';
 import { useModelStore } from '../store/modelStore';
 import { layerSize } from '../engine/compositing';

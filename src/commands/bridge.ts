@@ -8,8 +8,7 @@
 // interleave their history steps, and a script that opens, edits and exports
 // relies on nothing else changing the active document in between.
 
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { invoke, listen } from '../platform';
 import { describeCommands, execute } from './registry';
 import { desktopAvailable } from './files';
 import './catalog';

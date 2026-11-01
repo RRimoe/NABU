@@ -165,7 +165,15 @@ npm install
 npm run tauri:llm     # desktop app, with the language engine
 npm run tauri dev     # desktop app, without it
 npm run dev           # interface only, in a browser (no models)
+npm run build:web     # the installable web version (iPhone, iPad, browsers)
 ```
+
+**Web version.** The same interface, installable from Safari on iPhone and
+iPad ("Add to Home Screen") and from desktop browsers, and usable offline once
+opened. `.github/workflows/web.yml` publishes it on GitHub Pages (enable once:
+Settings → Pages → Source: GitHub Actions). Everything the desktop app runs in
+Rust goes through `src/platform/`: in the browser it is sent to the service at
+`VITE_NABU_SERVICE_URL`, or reports plainly that it is not available here.
 
 Building: `npm run build:llm`. Tests: `cargo test --all-targets` in
 `src-tauri/`, `cargo test` in `crates/nabu-cli`, `cargo test --release` in

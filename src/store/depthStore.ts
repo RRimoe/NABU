@@ -9,7 +9,7 @@
 // worse than none.
 
 import { create } from 'zustand';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../platform';
 import { useDocumentStore } from './documentStore';
 
 interface DepthEntry {
